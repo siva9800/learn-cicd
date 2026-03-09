@@ -1,0 +1,54 @@
+name: Hello World — Challenge Solution
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      your_name:
+        description: 'Your name'
+        required: true
+        default: 'Student'
+        type: string
+
+jobs:
+  greet:
+    name: Greeting Job (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Display run information
+        run: |
+          echo "==============================="
+          echo "  WORKFLOW RUN INFORMATION"
+          echo "==============================="
+          echo "Workflow:    ${{ github.workflow }}"
+          echo "Run Number:  ${{ github.run_number }}"
+          echo "Actor:       ${{ github.actor }}"
+          echo "Event:       ${{ github.event_name }}"
+          echo "Branch:      ${{ github.ref_name }}"
+          echo "Commit SHA:  ${{ github.sha }}"
+          echo "Runner OS:   ${{ runner.os }}"
+          echo "==============================="
+
+      - name: Personalized greeting
+        run: echo "Hello, ${{ inputs.your_name || github.actor }}!"
+
+  info:
+    name: Info Job (Windows)
+    runs-on: windows-latest
+    needs: greet           # runs only after greet completes
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Display Windows runner info
+        run: |
+          echo "Running on Windows!"
+          echo "Runner: ${{ runner.os }} ${{ runner.arch }}"
+          echo "Hello from Windows, ${{ inputs.your_name || github.actor }}!"
+        shell: bash        # use bash even on Windows runner
