@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CI/CD Pipeline - Interactive (Commit to Production)</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1726;color:#e6f0ff;
+    min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;}
+  h1{font-size:1.5rem;text-align:center;font-weight:600;}
+  p.sub{color:#8aa0c0;max-width:740px;text-align:center;margin:8px 0 16px;line-height:1.5;}
+  .analogy{background:#14233c;border:1px solid #243a5e;border-left:3px solid #2ea043;
+    border-radius:6px;padding:14px 18px;max-width:800px;font-size:.9rem;margin-bottom:20px;line-height:1.55;color:#c4d4ea;}
+  .analogy b{color:#5fce7e;font-weight:600;}
+  .pipeline{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:stretch;margin-bottom:18px;max-width:980px;}
+  .stage{flex:1;min-width:108px;background:#14233c;border:2px solid #243a5e;border-radius:8px;
+    padding:14px 8px;text-align:center;transition:all .35s;}
+  .stage .nm{font-size:.82rem;font-weight:600;letter-spacing:.01em;}
+  .stage .ph{font-size:.62rem;color:#5a6b87;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;}
+  .stage .st{font-size:.68rem;margin-top:6px;color:#6b7c99;min-height:15px;}
+  .stage.running{border-color:#d29922;background:#2b2410;}
+  .stage.pass{border-color:#2ea043;background:#102a18;}
+  .stage.fail{border-color:#f85149;background:#2a1213;}
+  .stage.gate{border-color:#a371f7;background:#1d1733;}
+  .stage .st.ok{color:#5fce7e;} .stage .st.bad{color:#ff7b72;} .stage .st.wait{color:#c8a6ff;}
+  .arrow{align-self:center;color:#3a4d6e;font-weight:700;font-size:1.1rem;}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:6px 0;}
+  button{border:none;border-radius:6px;padding:11px 18px;font-weight:600;cursor:pointer;font-size:.86rem;}
+  .b-go{background:#238636;color:#fff;} .b-bad{background:#a7333a;color:#fff;}
+  .b-reset{background:#243a5e;color:#e6f0ff;} button:disabled{opacity:.4;cursor:not-allowed;}
+  button:hover:not(:disabled){filter:brightness(1.15);}
+  .gatebox{display:none;background:#1d1733;border:1px solid #5a3fa0;border-radius:8px;
+    padding:16px 20px;max-width:620px;margin:8px 0;text-align:center;line-height:1.5;}
+  .gatebox.show{display:block;}
+  .gatebox .t{font-weight:600;color:#c8a6ff;}
+  .gatebox button{margin:10px 6px 0;}
+  .b-approve{background:#7c4ddb;color:#fff;} .b-reject{background:#6e7681;color:#fff;}
+  .log{background:#08111f;border:1px solid #243a5e;border-radius:8px;padding:14px 18px;
+    width:min(980px,96vw);font-family:'Cascadia Code',Consolas,monospace;font-size:.8rem;
+    min-height:130px;margin-top:14px;line-height:1.6;}
+  .log .c{color:#79c0ff;} .log .g{color:#5fce7e;} .log .y{color:#e3b341;} .log .r{color:#ff7b72;} .log .d{color:#6b7c99;} .log .p{color:#c8a6ff;}
+</style>
+</head>
+<body>
+  <h1>CI/CD Pipeline: From Commit to Production</h1>
+  <p class="sub">Push code and watch it move through the automated pipeline. Try a passing commit, a failing one (CI blocks it before it ships), and approve the production gate.</p>
+
+  <div class="analogy">
+    <b>The idea in plain terms:</b> a CI/CD pipeline is a factory assembly line with quality inspectors at each station. Your code is the raw material; every station (build, test, lint, security) inspects it. If any inspector finds a defect, the line stops and the product never reaches the customer. Only goods that pass every check get shipped, and a human supervisor signs off before the final delivery to production.
+  </div>
+
+  <div class="pipeline" id="pipeline"></div>
+
+  <div class="gatebox" id="gatebox">
+    <span class="t">Production deployment is waiting for approval.</span><br>
+    <span style="font-size:.84rem;color:#8aa0c0">A human reviewer must approve before it ships to real users.</span><br>
+    <button class="b-approve" id="approve">Approve deploy</button>
+    <button class="b-reject" id="reject">Reject</button>
+  </div>
+
+  <div class="controls">
+    <button class="b-go" id="good">Push a good commit</button>
+    <button class="b-bad" id="bad">Push a buggy commit</button>
+    <button class="b-reset" id="reset">Reset</button>
+  </div>
+
+  <div class="log" id="log"><span class="d"># Push a commit to start the pipeline.</span></div>
+
+<script>
+  const stages=[
+    {id:"push",  ph:"source", nm:"Push"},
+    {id:"build", ph:"CI",     nm:"Build"},
+    {id:"test",  ph:"CI",     nm:"Test"},
+    {id:"lint",  ph:"CI",     nm:"Lint"},
+    {id:"sec",   ph:"CI",     nm:"Security"},
+    {id:"stage", ph:"CD",     nm:"Staging"},
+    {id:"gate",  ph:"gate",   nm:"Approval"},
+    {id:"prod",  ph:"CD",     nm:"Production"},
+  ];
+  const pEl=document.getElementById("pipeline");
+  function render(states){
+    pEl.innerHTML="";
+    stages.forEach((s,i)=>{
+      const st=states[s.id]||{};
+      const d=document.createElement("div");
+      d.className="stage "+(st.cls||"");
+      d.innerHTML='<div class="ph">'+s.ph+'</div><div class="nm">'+s.nm+'</div><div class="st '+(st.tcls||'')+'">'+(st.txt||'')+'</div>';
+      pEl.appendChild(d);
+      if(i<stages.length-1){const a=document.createElement("div");a.className="arrow";a.textContent="→";pEl.appendChild(a);}
+    });
+  }
+  let states={};
+  render(states);
+
+  const logEl=document.getElementById("log");
+  function log(html){logEl.innerHTML="<div>"+html+"</div>"+logEl.innerHTML;}
+  function clear(){logEl.innerHTML="";}
+  function setBtns(d){["good","bad"].forEach(id=>document.getElementById(id).disabled=d);}
+
+  function run(buggy){
+    clear();states={};render(states);setBtns(true);
+    document.getElementById("gatebox").classList.remove("show");
+    const ci=["build","test","lint","sec"];
+    let t=0;const step=850;
+    states.push={cls:"pass",txt:"committed",tcls:"ok"};
+    setTimeout(()=>{render(states);log('<span class="c">$ git push origin feature/login</span>');log('<span class="d">GitHub Actions triggered</span>');},t+=step);
+
+    let failed=false;
+    ci.forEach(cs=>{
+      setTimeout(()=>{if(failed)return;states[cs]={cls:"running",txt:"running"};render(states);
+        log('<span class="y">'+cs+' running...</span>');},t+=step);
+      if(buggy && cs==="test"){
+        setTimeout(()=>{states[cs]={cls:"fail",txt:"FAILED",tcls:"bad"};render(states);failed=true;
+          log('<span class="r">test FAILED - 2 tests broke</span>');
+          log('<span class="r">Pipeline stopped. Merge blocked. The buggy code never reaches users - exactly what CI is for.</span>');
+          setBtns(false);},t+=step);
+      } else {
+        setTimeout(()=>{if(failed)return;states[cs]={cls:"pass",txt:"passed",tcls:"ok"};render(states);
+          log('<span class="g">'+cs+' passed</span>');},t+step*0.8);
+      }
+    });
+    if(buggy)return;
+
+    setTimeout(()=>{states.stage={cls:"running",txt:"deploying"};render(states);
+      log('<span class="y">deploying to staging...</span>');},t+=step);
+    setTimeout(()=>{states.stage={cls:"pass",txt:"live",tcls:"ok"};render(states);
+      log('<span class="g">staging live, smoke tests passed</span>');},t+=step);
+    setTimeout(()=>{states.gate={cls:"gate",txt:"waiting",tcls:"wait"};render(states);
+      log('<span class="p">waiting for human approval to deploy to production...</span>');
+      document.getElementById("gatebox").classList.add("show");},t+=step);
+  }
+
+  document.getElementById("good").onclick=()=>run(false);
+  document.getElementById("bad").onclick=()=>run(true);
+  document.getElementById("approve").onclick=()=>{
+    document.getElementById("gatebox").classList.remove("show");
+    states.prod={cls:"running",txt:"deploying"};render(states);
+    log('<span class="p">approved by reviewer</span>');
+    setTimeout(()=>{states.prod={cls:"pass",txt:"LIVE",tcls:"ok"};render(states);
+      log('<span class="g">deployed to production - users are live</span>');setBtns(false);},850);
+  };
+  document.getElementById("reject").onclick=()=>{
+    document.getElementById("gatebox").classList.remove("show");
+    states.prod={cls:"fail",txt:"cancelled",tcls:"bad"};render(states);
+    log('<span class="r">deployment rejected - production unchanged</span>');setBtns(false);
+  };
+  document.getElementById("reset").onclick=()=>{states={};render(states);clear();
+    log('<span class="d"># Push a commit to start the pipeline.</span>');setBtns(false);
+    document.getElementById("gatebox").classList.remove("show");};
+</script>
+</body>
+</html>

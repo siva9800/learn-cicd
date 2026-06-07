@@ -1,14 +1,27 @@
-# Module 4 — Continuous Deployment
+# Module 4 - Continuous Deployment
+
+> Goal: Take code that has passed CI and get it running safely in the real world, with repeatable builds, controlled releases, and a clear way to undo a deployment when something goes wrong.
+
+## Learning Objectives
+
+By the end of this module you will be able to:
+
+- Describe what a CD pipeline does after CI passes and the main deployment strategies
+- Build and push Docker images from GitHub Actions to a container registry
+- Deploy to AWS, Azure, GCP, and simpler platforms such as Render and Railway
+- Version and tag releases using semantic versioning and immutable commit SHAs
+- Plan and execute a rollback using a previous image, a git revert, a blue-green swap, or a feature flag
+- Verify a deployment with smoke tests and automatically roll back on failure
 
 ## Table of Contents
 
 1. [CD Overview](#1-cd-overview)
-2. [Docker — Build and Push Images](#2-docker--build-and-push-images)
+2. [Docker - Build and Push Images](#2-docker--build-and-push-images)
 3. [Deploying to Cloud Platforms](#3-deploying-to-cloud-platforms)
 4. [Versioning and Tagging](#4-versioning-and-tagging)
 5. [Rollback Strategies](#5-rollback-strategies)
 6. [Deployment Verification](#6-deployment-verification)
-7. [Lab — End-to-End Deploy Pipeline](#lab--end-to-end-deploy-pipeline)
+7. [Lab - End-to-End Deploy Pipeline](#lab--end-to-end-deploy-pipeline)
 
 ---
 
@@ -16,29 +29,21 @@
 
 ### What Happens After CI Passes?
 
-CI verifies code quality. CD takes the verified code and gets it running somewhere. The full flow:
+CI verifies code quality. CD takes the verified code and gets it running somewhere. Think of CI as the kitchen checking that a dish is cooked correctly, and CD as the waiters carrying it out to the right tables in the right order. The full flow:
 
-```
-Code merged to main
-        ↓
-CI pipeline runs (tests, lint, security)
-        ↓
-All CI jobs pass
-        ↓
-CD pipeline starts
-        ↓
-┌─────────────────────────────────────────────┐
-│              CD PIPELINE                    │
-│                                             │
-│  1. Build Docker image                      │
-│  2. Push to container registry              │
-│  3. Deploy to staging                       │
-│  4. Run smoke tests on staging              │
-│  5. [APPROVAL GATE]                         │
-│  6. Deploy to production                    │
-│  7. Verify deployment health                │
-│  8. Notify team (Slack/email)               │
-└─────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A[Code merged to main] --> B[CI pipeline runs: tests, lint, security]
+    B --> C{All CI jobs pass}
+    C --> D[CD pipeline starts]
+    D --> E[1. Build Docker image]
+    E --> F[2. Push to container registry]
+    F --> G[3. Deploy to staging]
+    G --> H[4. Run smoke tests on staging]
+    H --> I[5. Approval gate]
+    I --> J[6. Deploy to production]
+    J --> K[7. Verify deployment health]
+    K --> L[8. Notify team via Slack or email]
 ```
 
 ### Deployment Strategies Overview
@@ -50,11 +55,13 @@ CD pipeline starts
 | **Blue/Green** | Two identical environments, switch traffic | No | Low |
 | **Canary** | Route small % of traffic to new version | No | Very Low |
 
+Two of these are easier to picture with everyday images. A blue-green deploy is like having two identical stages set up side by side: the audience is watching the blue stage while you quietly prepare the green one, and when it is ready you simply flip a switch to send everyone to green. A canary release is like letting a few taste-testers try a new dish before you put it on the menu for every diner, so if the recipe is off only a handful of people notice.
+
 Most beginners use Rolling or Blue/Green. The platform you deploy to usually handles the strategy.
 
 ---
 
-## 2. Docker — Build and Push Images
+## 2. Docker - Build and Push Images
 
 ### Why Docker in CI/CD?
 
@@ -119,7 +126,7 @@ CMD ["node", "src/index.js"]
 
 ### `.dockerignore`
 
-Like `.gitignore` but for Docker — prevents unnecessary files from being sent to Docker daemon:
+Like `.gitignore` but for Docker - prevents unnecessary files from being sent to Docker daemon:
 
 ```
 node_modules
@@ -432,12 +439,12 @@ jobs:
         run: npm run build
 
       - name: Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Note: actions/create-release is archived and deprecated.
+        # Use the maintained softprops/action-gh-release instead.
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           body: |
             ## Changes in ${{ github.ref_name }}
             - See CHANGELOG.md for details
@@ -481,9 +488,11 @@ env:
 
 ### What is a Rollback?
 
-A rollback undoes a bad deployment and returns to a known-good state. Having a fast rollback strategy is essential — even with good CI, things go wrong in production.
+A rollback is the undo button for a deployment. It is like keeping the previous version of a document on standby so that if the new edit turns out to be wrong, you can instantly go back to the copy you know was good. Even with strong CI, surprises happen in production, so a fast and rehearsed undo is essential.
 
-### Strategy 1 — Re-Deploy Previous Image
+A rollback undoes a bad deployment and returns to a known-good state. Having a fast rollback strategy is essential - even with good CI, things go wrong in production.
+
+### Strategy 1 - Re-Deploy Previous Image
 
 The simplest approach: keep the previous Docker image tag and redeploy it.
 
@@ -539,7 +548,7 @@ jobs:
           echo "Rollback complete!"
 ```
 
-### Strategy 2 — Git Revert
+### Strategy 2 - Git Revert
 
 Revert the bad commit and let the CD pipeline re-deploy:
 
@@ -549,13 +558,15 @@ git revert HEAD          # creates a new commit that undoes the last commit
 git push origin main     # triggers CI/CD which deploys the reverted state
 ```
 
-### Strategy 3 — Blue/Green Swap
+### Strategy 3 - Blue/Green Swap
 
 If you use blue/green deployment:
-```
-Blue (old version running) → Green (new version just deployed)
-                               ↑ something went wrong
-           ← swap traffic back to Blue (instant rollback)
+
+```mermaid
+flowchart LR
+    Blue[Blue - old version running] -->|traffic switched to new| Green[Green - new version just deployed]
+    Green -->|something went wrong| Problem[Problem detected]
+    Problem -->|swap traffic back to Blue, instant rollback| Blue
 ```
 
 ```yaml
@@ -566,7 +577,7 @@ Blue (old version running) → Green (new version just deployed)
             --default-actions Type=forward,TargetGroupArn=${{ secrets.BLUE_TARGET_GROUP_ARN }}
 ```
 
-### Strategy 4 — Feature Flags
+### Strategy 4 - Feature Flags
 
 Use feature flags to disable a bad feature without a deployment:
 
@@ -586,6 +597,8 @@ Flip the flag in your feature flag system (LaunchDarkly, Flagsmith, etc.) → us
 ## 6. Deployment Verification
 
 ### Smoke Tests
+
+A smoke test is like turning the key to check that the engine starts before you actually drive off. You are not testing every feature, just confirming the most basic signs of life: the app responds, the health endpoint returns OK, the critical path works. If the engine will not even turn over, you stop before going any further.
 
 After deploying, automatically verify the app is working:
 
@@ -635,7 +648,7 @@ After deploying, automatically verify the app is working:
 
 ---
 
-## Lab — End-to-End Deploy Pipeline
+## Lab - End-to-End Deploy Pipeline
 
 ### Objective
 
@@ -771,6 +784,23 @@ jobs:
 
 ---
 
+## Common Mistakes
+
+- Deploying the mutable `latest` tag to production. Because `latest` can point to a different image tomorrow, you lose the link between what is running and which commit produced it. Deploy an immutable commit SHA tag instead, and keep `latest` only for convenience.
+- Having no rollback plan. Discovering you cannot undo a bad release while production is down is the worst time to find out. Decide and rehearse your rollback path before you need it.
+- Deploying without smoke tests. If you do not check that the app actually responds after deploying, a broken release can sit live for hours before anyone notices. Always verify the health endpoint and critical paths.
+- Giving the build job broad permissions. Pushing images only needs `contents: read` and `packages: write`. Granting write-all to `GITHUB_TOKEN` widens the blast radius if a step is compromised.
+- Leaving long-lived cloud access keys in Secrets when you could use OIDC. Static keys that never expire are a standing risk. Prefer keyless OIDC authentication for cloud deploys.
+- Using the deprecated `actions/create-release@v1`. It is archived and unmaintained. Use `softprops/action-gh-release@v2`, which is actively maintained and supports the same release fields.
+
+## Quick Self-Check
+
+1. What problem do Docker images solve when moving code from CI to staging to production?
+2. Why is a commit SHA a better production image tag than `latest`?
+3. Name two rollback strategies and describe when each one is the better choice.
+4. What is the purpose of a smoke test, and what should the pipeline do if a smoke test fails?
+5. In the release workflow, which action replaced the deprecated `actions/create-release@v1`, and which `with:` keys does it use for the tag, title, and notes?
+
 ## Summary
 
 | Concept | Key Point |
@@ -785,4 +815,4 @@ jobs:
 
 ---
 
-Next: [Module 5 — Advanced GitHub Actions](../05-advanced/README.md)
+You have completed the CI/CD learning track. Return to the [course module index](../README.md) or the [main notes index](../../README.md) to continue.

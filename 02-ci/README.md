@@ -1,4 +1,4 @@
-# Module 2 — Continuous Integration
+# Module 2 - Continuous Integration
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@
 6. [Caching Dependencies](#6-caching-dependencies)
 7. [Build Artifacts](#7-build-artifacts)
 8. [Status Checks & Branch Protection](#8-status-checks--branch-protection)
-9. [Lab — Full CI Pipeline](#lab--full-ci-pipeline)
+9. [Lab - Full CI Pipeline](#lab--full-ci-pipeline)
 
 ---
 
@@ -18,26 +18,22 @@
 
 A CI pipeline is the automated gatekeeper for your codebase. Every time a developer pushes code or opens a PR, the pipeline runs and answers one question: **"Is this code safe to merge?"**
 
+**A real-world analogy:** A CI pipeline is like a restaurant kitchen where every dish is taste-tested before it leaves the kitchen. The dish (your code change) is checked by several inspectors at once - one tastes it, one checks the presentation, one checks it was cooked safely. Only if all of them approve does the plate go out to the customer. If any inspector says no, the plate goes back and the cook is told exactly what to fix.
+
 ### The CI Pipeline Lifecycle
 
-```
-Developer pushes code
-        ↓
-GitHub receives the push
-        ↓
-GitHub Actions triggers workflow
-        ↓
-┌─────────────────────────────────────────┐
-│           PARALLEL CI JOBS              │
-│                                         │
-│  ┌──────────┐  ┌──────────┐  ┌───────┐ │
-│  │  Tests   │  │  Lint    │  │ Build │ │
-│  │  (3 min) │  │  (1 min) │  │(2 min)│ │
-│  └────┬─────┘  └────┬─────┘  └───┬───┘ │
-└───────┼─────────────┼────────────┼─────┘
-        ↓             ↓            ↓
-   All pass? → Green checkmark on PR → Safe to merge
-   Any fail? → Red X on PR → Block merge, notify developer
+```mermaid
+flowchart TD
+    A[Developer pushes code] --> B[GitHub receives the push]
+    B --> C[GitHub Actions triggers workflow]
+    C --> D[Tests, about 3 min]
+    C --> E[Lint, about 1 min]
+    C --> F[Build, about 2 min]
+    D --> G{All pass?}
+    E --> G
+    F --> G
+    G -->|Yes| H[Green checkmark on PR, safe to merge]
+    G -->|No| I[Red X on PR, block merge and notify developer]
 ```
 
 ### What CI Checks For
@@ -232,11 +228,11 @@ jobs:
           retention-days: 7
 ```
 
-### `npm ci` vs `npm install` — Know the Difference
+### `npm ci` vs `npm install` - Know the Difference
 
 | Feature | `npm install` | `npm ci` |
 |---|---|---|
-| Purpose | Development — add/update packages | CI — exact reproducible install |
+| Purpose | Development - add/update packages | CI - exact reproducible install |
 | Reads | `package.json` | `package-lock.json` (exact versions) |
 | `node_modules` | Merges/updates | Deletes and reinstalls fresh |
 | Lock file mismatch | Updates lock file | **FAILS** (alerts you to inconsistency) |
@@ -301,7 +297,7 @@ A **linter** is a tool that analyzes source code to flag:
 - Style violations (inconsistent quotes, missing semicolons)
 - Suspicious patterns (unused variables, overly complex expressions)
 
-Linting in CI means these issues are caught automatically before code is merged — no more review comments like "please remove that console.log".
+Linting in CI means these issues are caught automatically before code is merged - no more review comments like "please remove that console.log".
 
 ### ESLint (JavaScript/TypeScript)
 
@@ -343,7 +339,7 @@ Linting in CI means these issues are caught automatically before code is merged 
 
 ### Prettier (Code Formatting)
 
-Prettier enforces a consistent code style automatically. In CI, you check that code *was* formatted — you don't format it (that would change files and break the workflow).
+Prettier enforces a consistent code style automatically. In CI, you check that code *was* formatted - you don't format it (that would change files and break the workflow).
 
 ```yaml
       - name: Check formatting
@@ -500,8 +496,8 @@ strategy:
   matrix:
     node-version: [16, 18, 20]
 
-# fail-fast: true (default) — if one matrix job fails, cancel all others
-# fail-fast: false — let all matrix jobs run regardless of failures
+# fail-fast: true (default) - if one matrix job fails, cancel all others
+# fail-fast: false - let all matrix jobs run regardless of failures
 # Use false when you want to see ALL failures across versions
 ```
 
@@ -513,14 +509,17 @@ strategy:
 
 Installing dependencies (npm install, pip install) takes time. If you have 500 packages, installing them on every CI run wastes minutes.
 
-**Caching stores the installed packages between runs.** The cache key is based on the lock file — if `package-lock.json` changes, the cache is invalidated and packages are reinstalled fresh.
+**Caching stores the installed packages between runs.** The cache key is based on the lock file - if `package-lock.json` changes, the cache is invalidated and packages are reinstalled fresh.
+
+Caching is like keeping prepped ingredients in the fridge instead of shopping from scratch before every single meal. As long as your shopping list (the lock file) has not changed, you just grab what is already chopped and ready. The moment the list changes, you go shopping again and refill the fridge.
 
 ### How Caching Works
 
-```
-First run:  npm ci runs → installs packages → cache SAVED (keyed by lock file hash)
-Second run: lock file unchanged → cache HIT → packages restored in seconds
-Third run:  package added (lock file changed) → cache MISS → npm ci runs → cache SAVED
+```mermaid
+flowchart TD
+    A[First run: npm ci installs packages] --> B[Cache saved, keyed by lock file hash]
+    C[Second run: lock file unchanged] --> D[Cache hit, packages restored in seconds]
+    E[Third run: package added, lock file changed] --> F[Cache miss, npm ci runs, cache saved]
 ```
 
 ### Node.js Cache (Built-in)
@@ -584,7 +583,7 @@ Third run:  package added (lock file changed) → cache MISS → npm ci runs →
 
 ### What is an Artifact?
 
-An **artifact** is a file or directory produced by a workflow that you want to save and share. Examples:
+An **artifact** is a file or directory produced by a workflow that you want to save and share. An artifact is like a lunchbox handed from one worker to the next: the build job packs up the finished meal, and a later job opens the same lunchbox instead of cooking everything again. This matters because each job runs on its own fresh runner, so files do not travel between jobs unless you pack them into an artifact. Examples:
 - Test coverage reports
 - Compiled binaries
 - Docker images
@@ -684,7 +683,7 @@ These statuses appear on:
 **Branch protection** prevents code from being merged unless certain conditions are met. This enforces your CI gates.
 
 **To set up (GitHub UI):**
-1. Repo → Settings → Branches
+1. Repo, then Settings, then Branches
 2. Click "Add branch protection rule"
 3. Branch name pattern: `main`
 4. Check: "Require status checks to pass before merging"
@@ -714,7 +713,7 @@ These statuses appear on:
 
 ---
 
-## Lab — Full CI Pipeline
+## Lab - Full CI Pipeline
 
 ### Objective
 
@@ -837,7 +836,7 @@ jobs:
 2. Copy the sample app to `02-ci/app/`
 3. Push to a new branch
 4. Open a PR
-5. Watch the CI run — you'll see 4 jobs: lint, test (Node 18), test (Node 20), build
+5. Watch the CI run - you'll see 4 jobs: lint, test (Node 18), test (Node 20), build
 
 ### Challenge
 
@@ -870,11 +869,36 @@ Extend the pipeline to:
 
 ---
 
+## Common Mistakes
+
+These are the pitfalls that catch almost every beginner. Knowing them in advance saves hours of confusion.
+
+- Using `npm install` instead of `npm ci` in CI. `npm install` can quietly change your lock file and pull slightly different versions, so the pipeline tests something different from what you committed. `npm ci` installs the exact versions from `package-lock.json` and fails loudly if they do not match.
+- Not pinning action versions. Writing `uses: actions/checkout` with no version, or trusting a moving tag, means a future update to that action can break your pipeline overnight. Pin to a major version like `actions/checkout@v4`, or a full commit SHA for stricter security.
+- Forgetting `fail-fast: false` in a matrix. By default, the moment one combination fails, GitHub cancels the rest. You then see only the first failure and have to guess about the others. Setting `fail-fast: false` lets every combination finish so you see the full picture.
+- Hardcoding secrets in the workflow file. Anyone who can read the repository can read the file, and the value lives forever in Git history. Store tokens and keys in GitHub Secrets and read them with `${{ secrets.MY_TOKEN }}`.
+- Expecting files to persist between jobs. Each job runs on a fresh runner, so a file created in one job is gone in the next. To pass a build result along, upload it as an artifact in one job and download it in the next.
+- Running the full pipeline on docs-only changes. Editing a single README should not spin up a 10 minute build. Use a `paths` or `paths-ignore` filter on your triggers so the heavy jobs run only when real code changes.
+
+---
+
+## Quick Self-Check
+
+Test yourself before moving on. If you can answer these in your own words, you are ready.
+
+1. In one sentence, what question does a CI pipeline answer every time code is pushed?
+2. What is the difference between `npm install` and `npm ci`, and which belongs in CI?
+3. You need to test your app on Node 18, 20, and 22 in one workflow. Which feature do you use, and what does `fail-fast: false` change about the result?
+4. Why does caching speed up a pipeline, and what causes a cache to be rebuilt?
+5. A build job produces a `dist/` folder that a later deploy job needs. Why can the deploy job not just read the file directly, and what do you use instead?
+
+---
+
 ## Summary
 
 | Concept | Key Point |
 |---|---|
-| `npm ci` | Always use in CI — reproducible, strict |
+| `npm ci` | Always use in CI - reproducible, strict |
 | Lint | Catches bugs and style issues automatically |
 | Matrix | Test multiple versions/platforms in parallel |
 | `fail-fast: false` | See all matrix failures, not just the first |
@@ -884,4 +908,4 @@ Extend the pipeline to:
 
 ---
 
-Next: [Module 3 — Secrets & Environments](../03-secrets/README.md)
+Next: [Module 3 - Secrets & Environments](../03-secrets/README.md)

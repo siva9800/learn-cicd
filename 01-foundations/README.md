@@ -1,15 +1,29 @@
-# Module 1 — Foundations
+# Module 1 - Foundations
+
+> Goal: Build a clear mental model of what CI/CD is, why it exists, and the GitHub Actions vocabulary you need before writing your first pipeline.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- Explain in plain language what CI, Continuous Delivery, and Continuous Deployment each mean
+- Describe the problem CI/CD was invented to solve
+- Compare the main Git branching strategies and how they affect when a pipeline runs
+- Identify the core GitHub Actions building blocks: workflow, job, step, runner, action, trigger
+- Read a workflow file line by line and explain what each part does
+- Write and run your first Hello World workflow
+- Avoid the most common beginner misunderstandings about CI/CD
 
 ## Table of Contents
 
 1. [What is CI/CD?](#1-what-is-cicd)
 2. [Why CI/CD Matters](#2-why-cicd-matters)
 3. [Git Branching Strategies](#3-git-branching-strategies)
-4. [GitHub Actions — Core Concepts](#4-github-actions--core-concepts)
+4. [GitHub Actions - Core Concepts](#4-github-actions---core-concepts)
 5. [Anatomy of a Workflow File](#5-anatomy-of-a-workflow-file)
 6. [Your First Workflow](#6-your-first-workflow)
 7. [Triggers (Events)](#7-triggers-events)
-8. [Lab — Hello World Pipeline](#lab--hello-world-pipeline)
+8. [Lab - Hello World Pipeline](#lab---hello-world-pipeline)
 
 ---
 
@@ -22,19 +36,25 @@
 **The core idea:**
 Instead of developers working in isolation for weeks and merging a massive change at the end (called "big bang integration"), CI encourages small, frequent merges. Every time code is pushed, an automated system builds the project and runs tests immediately.
 
+**A real-world analogy:** Continuous Integration is like a restaurant kitchen where every dish is taste-tested the moment it is plated. A bad dish never leaves the kitchen, so the customer never sees it. Compare that to a kitchen that cooks for a week and only tastes everything on the night of the big banquet - by then it is far too late to fix a spoiled sauce. CI tastes early and often so problems are caught while they are still small.
+
 **Without CI (the old way):**
-```
-Dev A works alone for 2 weeks  →  Dev B works alone for 2 weeks
-           ↓
-      Both try to merge
-           ↓
-   MERGE HELL — conflicts, broken code, days of debugging
+
+```mermaid
+flowchart TD
+    A[Dev A works alone for 2 weeks] --> C[Both try to merge]
+    B[Dev B works alone for 2 weeks] --> C
+    C --> D[Merge hell: conflicts, broken code, days of debugging]
 ```
 
 **With CI:**
-```
-Dev A pushes small change  →  Tests run automatically  →  Pass? Great. Merge.
-Dev B pushes small change  →  Tests run automatically  →  Fail? Fix immediately.
+
+```mermaid
+flowchart LR
+    A[Dev A pushes small change] --> B[Tests run automatically]
+    B --> C[Pass? Great, merge]
+    D[Dev B pushes small change] --> E[Tests run automatically]
+    E --> F[Fail? Fix immediately]
 ```
 
 **What CI does automatically:**
@@ -54,44 +74,60 @@ Dev B pushes small change  →  Tests run automatically  →  Fail? Fix immediat
 
 **Key distinction:** The software is *always in a deployable state*. You *can* deploy at any time, but you choose *when*.
 
-```
-Code push → CI (tests pass) → Build artifact → Stage to staging → HUMAN approves → Deploy to prod
+Think of Continuous Delivery as having every approved dish boxed up and sitting on the pass, ready to go the instant a waiter calls for it. The food is finished and safe to serve; a human just decides the moment it leaves the kitchen.
+
+```mermaid
+flowchart LR
+    A[Code push] --> B[CI: tests pass]
+    B --> C[Build artifact]
+    C --> D[Stage to staging]
+    D --> E[Human approves]
+    E --> F[Deploy to prod]
 ```
 
 ---
 
 ### Continuous Deployment (also CD)
 
-**Definition:** Goes one step further than Continuous Delivery — every change that passes all automated tests is *automatically* deployed to production without human intervention.
+**Definition:** Goes one step further than Continuous Delivery - every change that passes all automated tests is *automatically* deployed to production without human intervention.
 
 **Key distinction:** No human approval step. If tests pass, it ships.
 
-```
-Code push → Tests pass → Build → Deploy to prod (automatically)
+Continuous Deployment is the dish being carried straight to the customer automatically the moment it passes the taste test, with nobody standing at the pass to wave it through. This only works when you trust your taste-testing (your automated tests) completely.
+
+```mermaid
+flowchart LR
+    A[Code push] --> B[Tests pass]
+    B --> C[Build]
+    C --> D[Deploy to prod automatically]
 ```
 
 **When to use which:**
 | Approach | Best for |
 |---|---|
 | CI only | Small teams just starting out |
-| Continuous Delivery | Most teams — human has final say on prod |
+| Continuous Delivery | Most teams - human has final say on prod |
 | Continuous Deployment | High-confidence test suites, web apps, SaaS products |
 
 ---
 
 ### The CI/CD Pipeline
 
-A **pipeline** is the series of automated steps that code goes through from commit to production:
+A **pipeline** is the series of automated steps that code goes through from commit to production. Picture a factory assembly line or a car wash conveyor: your code enters at one end and moves through one station after another, and it only comes out the far end if every station was happy with it.
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        CI/CD PIPELINE                            │
-│                                                                  │
-│  Code Push → Build → Test → Code Quality → Security → Deploy    │
-│      ↓          ↓       ↓         ↓            ↓          ↓     │
-│   Git push   Compile  Unit    Linting     Dependency    Staging/ │
-│              App      Tests   Formatting   Scanning      Prod    │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A[Code push] --> B[Build]
+    B --> C[Test]
+    C --> D[Code quality]
+    D --> E[Security]
+    E --> F[Deploy]
+    A1[Git push] -.-> A
+    B1[Compile app] -.-> B
+    C1[Unit tests] -.-> C
+    D1[Linting and formatting] -.-> D
+    E1[Dependency scanning] -.-> E
+    F1[Staging or prod] -.-> F
 ```
 
 ---
@@ -101,16 +137,16 @@ A **pipeline** is the series of automated steps that code goes through from comm
 ### The Business Case
 
 **Without CI/CD:**
-- Bugs found late (weeks after code was written) — expensive to fix
-- Manual deployments — slow, error-prone, stressful "deploy Fridays"
-- "Works on my machine" — different environments cause mysterious failures
-- Fear of deploying — so teams deploy less often, creating bigger, riskier releases
+- Bugs found late (weeks after code was written) - expensive to fix
+- Manual deployments - slow, error-prone, stressful "deploy Fridays"
+- "Works on my machine" - different environments cause mysterious failures
+- Fear of deploying - so teams deploy less often, creating bigger, riskier releases
 
 **With CI/CD:**
-- Bugs caught immediately — while the developer still remembers the code
-- Deployments are automated and repeatable — deploy 10 times a day confidently
-- Consistent environments — same process every time
-- Small, safe releases — less risk, faster recovery if something breaks
+- Bugs caught immediately - while the developer still remembers the code
+- Deployments are automated and repeatable - deploy 10 times a day confidently
+- Consistent environments - same process every time
+- Small, safe releases - less risk, faster recovery if something breaks
 
 ### Real-World Stats
 
@@ -129,8 +165,8 @@ A **pipeline** is the series of automated steps that code goes through from comm
 
 **After CI/CD:**
 1. Write a small change
-2. Push — tests run automatically in 2 minutes
-3. "Tests passed, great" — merge with confidence
+2. Push - tests run automatically in 2 minutes
+3. "Tests passed, great" - merge with confidence
 4. Deployment happens automatically, verified, monitored
 
 ---
@@ -139,15 +175,18 @@ A **pipeline** is the series of automated steps that code goes through from comm
 
 Understanding branching strategies is critical because CI/CD pipelines are triggered by specific branch events. The strategy you choose affects *when* and *how* your pipeline runs.
 
-### Strategy 1 — Trunk-Based Development
+### Strategy 1 - Trunk-Based Development
 
 **The idea:** Everyone commits directly to `main` (the "trunk") multiple times per day. Short-lived feature branches (max 1-2 days) are allowed but kept very small.
 
-```
-main: ─────●─────●─────●─────●─────●──────  (frequent small commits)
-                  ↑           ↑
-            feature-a      feature-b
-            (lived 4 hrs)  (lived 1 day)
+```mermaid
+gitGraph
+    commit
+    commit id: "feature-a (4 hrs)"
+    commit
+    commit id: "feature-b (1 day)"
+    commit
+    commit
 ```
 
 **CI/CD implication:** Tests run on every push to `main`. Because commits are small and frequent, problems are caught fast.
@@ -156,24 +195,34 @@ main: ─────●─────●─────●─────●�
 
 ---
 
-### Strategy 2 — GitHub Flow
+### Strategy 2 - GitHub Flow
 
 **The most common for small/medium teams.**
 
+```mermaid
+gitGraph
+    commit
+    branch feature-a
+    checkout feature-a
+    commit
+    commit
+    checkout main
+    merge feature-a tag: "PR merge"
+    branch feature-b
+    checkout feature-b
+    commit
+    commit
+    checkout main
+    merge feature-b tag: "PR merge"
 ```
-main:    ─────────────●──────────────────●──────
-                      ↑                  ↑
-                   PR merge           PR merge
-                      │                  │
-feature-a:  ──────────●             feature-b: ──────────●
-            (tests run on PR)                  (tests run on PR)
-```
+
+Tests run on each pull request before the merge happens.
 
 **The workflow:**
 1. Create a feature branch from `main`
 2. Make commits, push to GitHub
 3. Open a Pull Request
-4. **CI runs automatically on the PR** — tests, lint, etc.
+4. **CI runs automatically on the PR** - tests, lint, etc.
 5. Team reviews the code
 6. Merge only when CI passes + reviews approved
 7. CD deploys automatically from `main`
@@ -184,20 +233,34 @@ feature-a:  ──────────●             feature-b: ───�
 
 ---
 
-### Strategy 3 — GitFlow
+### Strategy 3 - GitFlow
 
 **More structured, suited for versioned software (apps with releases, libraries).**
 
-```
-main:    ─────────────────────────●────────────  (only release tags)
-                                  ↑
-develop: ──●──────────●───────────●──────────  (integration branch)
-            ↑         ↑
-         feature-a  feature-b
-                         ↑
-                    release/1.0 (stabilization branch)
-                         ↑
-                    hotfix/critical-fix (emergency patches to main)
+```mermaid
+gitGraph
+    commit
+    branch develop
+    checkout develop
+    commit
+    branch feature-a
+    checkout feature-a
+    commit
+    checkout develop
+    merge feature-a
+    branch release/1.0
+    checkout release/1.0
+    commit id: "stabilize"
+    checkout main
+    merge release/1.0 tag: "v1.0"
+    checkout develop
+    merge release/1.0
+    checkout main
+    branch hotfix/critical
+    checkout hotfix/critical
+    commit id: "emergency fix"
+    checkout main
+    merge hotfix/critical tag: "v1.0.1"
 ```
 
 **Branches:**
@@ -218,11 +281,11 @@ develop: ──●──────────●─────────�
 
 ### Which to Choose?
 
-For this course, we use **GitFlow** — it introduces the full set of branch types (feature, develop, release, hotfix, main) that you'll encounter in real teams, and it maps cleanly onto the environments (dev → staging → production) we'll build throughout the bootcamp.
+For this course, we use **GitFlow** - it introduces the full set of branch types (feature, develop, release, hotfix, main) that you'll encounter in real teams, and it maps cleanly onto the environments (dev to staging to production) we'll build throughout the bootcamp.
 
 ---
 
-## 4. GitHub Actions — Core Concepts
+## 4. GitHub Actions - Core Concepts
 
 GitHub Actions is GitHub's built-in CI/CD platform. It is:
 - Free for public repositories
@@ -232,15 +295,15 @@ GitHub Actions is GitHub's built-in CI/CD platform. It is:
 
 ### The Hierarchy
 
-```
-GitHub Actions
-└── Workflow           ← A full automated process (defined in one .yml file)
-    ├── Trigger        ← What event starts the workflow
-    └── Job            ← A group of steps that run on one machine
-        ├── Runner     ← The virtual machine the job runs on
-        └── Step       ← A single command or action
-            ├── Action ← Reusable step from the marketplace
-            └── Run    ← Shell command you write yourself
+```mermaid
+flowchart TD
+    A[GitHub Actions] --> B[Workflow: a full automated process, one .yml file]
+    B --> C[Trigger: the event that starts the workflow]
+    B --> D[Job: a group of steps that run on one machine]
+    D --> E[Runner: the virtual machine the job runs on]
+    D --> F[Step: a single command or action]
+    F --> G[Action: reusable step from the marketplace]
+    F --> H[Run: shell command you write yourself]
 ```
 
 ---
@@ -272,7 +335,7 @@ A **job** is a set of steps that execute on the same runner (virtual machine).
 - Jobs run **in parallel by default**
 - Jobs can be made to run sequentially using `needs:`
 - If one job fails, dependent jobs are skipped (by default)
-- Each job gets a **fresh, clean virtual machine** — no state is shared between jobs unless you explicitly pass artifacts
+- Each job gets a **fresh, clean virtual machine** - no state is shared between jobs unless you explicitly pass artifacts
 
 ```yaml
 jobs:
@@ -294,11 +357,11 @@ jobs:
 
 ### Steps
 
-A **step** is a single task within a job. Steps run **sequentially** — one after another, on the same machine.
+A **step** is a single task within a job. Steps run **sequentially** - one after another, on the same machine.
 
 A step is either:
-1. A **`run`** step — you write a shell command
-2. A **`uses`** step — you use a pre-built Action from the marketplace
+1. A **`run`** step - you write a shell command
+2. A **`uses`** step - you use a pre-built Action from the marketplace
 
 ```yaml
 steps:
@@ -317,6 +380,8 @@ steps:
 ### Runners
 
 A **runner** is the virtual machine that executes a job.
+
+A runner is like a rented temporary kitchen that is cleaned out completely after each job. GitHub hands you a spotless kitchen, you cook your meal (build and test your code) in it, and the moment the job ends the kitchen is torn down and wiped clean. The next job gets a brand new kitchen. This is why nothing you create in one job survives into the next unless you deliberately pack it into an artifact and carry it over.
 
 **GitHub-hosted runners (free):**
 | Label | OS |
@@ -341,7 +406,7 @@ jobs:
 
 ### Actions
 
-An **action** is a reusable unit of code that can be used as a step. Think of actions like npm packages — someone wrote the complex logic, you just plug it in.
+An **action** is a reusable unit of code that can be used as a step. Think of actions like npm packages - someone wrote the complex logic, you just plug it in.
 
 **Actions come from:**
 1. The official GitHub Actions org (`actions/checkout`, `actions/setup-node`)
@@ -557,7 +622,7 @@ git commit -m "Add hello world workflow"
 git push
 ```
 
-5. Go to your GitHub repo → **Actions** tab — you'll see it running!
+5. Go to your GitHub repo, open the **Actions** tab, and you'll see it running.
 
 ### Reading Workflow Logs
 
@@ -618,11 +683,11 @@ on:
 ```
 
 **GitFlow PR targets:**
-- `feature/*` → PR into `develop`
-- `release/*` → PR into `main` (and back-merge into `develop`)
-- `hotfix/*` → PR into `main` (and back-merge into `develop`)
+- `feature/*` opens a PR into `develop`
+- `release/*` opens a PR into `main` (and back-merge into `develop`)
+- `hotfix/*` opens a PR into `main` (and back-merge into `develop`)
 
-**Important:** `pull_request` workflows run in the context of the PR's merge commit, not the head branch. This is a security feature — PRs from forks can't access secrets.
+**Important:** `pull_request` workflows run in the context of the PR's merge commit, not the head branch. This is a security feature - PRs from forks can't access secrets.
 
 ### Schedule Trigger (Cron)
 
@@ -765,7 +830,7 @@ ${{ secrets.MY_SECRET }}    # access repository secrets (never logged)
 
 ---
 
-## Lab — Hello World Pipeline
+## Lab - Hello World Pipeline
 
 ### Objective
 Create a workflow that runs on every push, prints information about the run, and checks out the repository.
@@ -829,7 +894,7 @@ git commit -m "feat: add hello world workflow"
 git push origin main
 ```
 
-**Step 4:** Go to GitHub → Actions tab → watch it run live.
+**Step 4:** Go to GitHub, open the Actions tab, and watch it run live.
 
 ### Challenge
 
@@ -841,6 +906,31 @@ Extend the workflow to:
 ### Solution
 
 See [exercises/hello-challenge-solution.yml](./exercises/hello-challenge-solution.yml)
+
+---
+
+## Common Mistakes
+
+These are the misunderstandings that trip up almost every beginner before they have even written a working pipeline.
+
+- Thinking CI/CD is a single tool you install. It is a way of working. Tools like GitHub Actions support it, but the real point is the habit of integrating small changes often and checking them automatically.
+- Confusing the two CDs. Continuous Delivery means the code is always ready to release and a human approves the actual release. Continuous Deployment means the release happens automatically with no human step. They are not the same thing.
+- Treating the runner as a permanent computer. Every job gets a fresh, empty machine that is wiped when the job ends. That is why each run reinstalls dependencies from scratch and why files do not survive from one job to the next on their own.
+- Forgetting to pin action versions. Writing `uses: actions/checkout` with no version lets a future update change the action and break your pipeline without warning. Pin to a major version like `actions/checkout@v4`.
+- Believing automated tests are optional. A pipeline with no tests just ships bugs faster. The automated checks are what make the speed safe.
+- Assuming bigger, less frequent releases are safer. The opposite is usually true. Small, frequent changes are easier to test, easier to review, and far easier to undo when something goes wrong.
+
+---
+
+## Quick Self-Check
+
+Try to answer these in your own words. If you can, you are ready for the next module.
+
+1. In plain language, what problem was CI/CD invented to solve?
+2. What is the difference between Continuous Delivery and Continuous Deployment?
+3. Put these GitHub Actions terms in order from largest to smallest: step, workflow, job. What starts the whole thing running?
+4. Why does a runner start empty every single time, and what does that force every workflow to do?
+5. In GitHub Flow, at what moment does CI run, and why does that matter before a merge?
 
 ---
 
@@ -859,4 +949,4 @@ See [exercises/hello-challenge-solution.yml](./exercises/hello-challenge-solutio
 
 ---
 
-Next: [Module 2 — Continuous Integration](../02-ci/README.md)
+Next: [Module 2 - Continuous Integration](../02-ci/README.md)
