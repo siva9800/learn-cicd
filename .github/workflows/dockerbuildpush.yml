@@ -1,0 +1,59 @@
+# .github/workflows/docker.yml
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [develop, main, 'release/**']  # GitFlow: build on all integration branches
+    tags: ['v*.*.*']                         # also build on version tags
+
+jobs:
+  docker:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write    # needed to push to GitHub Container Registry
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Set up Docker Buildx ────────────────────────────────────
+      # Buildx is an extended Docker build tool with better caching
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Login to GitHub Container Registry ──────────────────────
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # built-in, no setup needed!
+
+      # ── Generate image metadata and tags ────────────────────────
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            # type=ref,event=pr
+            # type=sha,prefix=sha-
+            # type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          # This generates tags like:
+          #   ghcr.io/org/repo:main
+          #   ghcr.io/org/repo:sha-abc1234
+          #   ghcr.io/org/repo:latest
+
+      # ── Build and push the image ─────────────────────────────────
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .               # build context (where Dockerfile is)
+          push: true               # actually push (set false to just build)
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha    # use GitHub Actions cache for Docker layers
+          cache-to: type=gha,mode=max
