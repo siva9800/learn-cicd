@@ -1,4 +1,4 @@
-# Module 1 - Foundations
+# Day 1 - CI/CD Foundations
 
 > Goal: Build a clear mental model of what CI/CD is, why it exists, and the GitHub Actions vocabulary you need before writing your first pipeline.
 
@@ -949,4 +949,4 @@ Try to answer these in your own words. If you can, you are ready for the next mo
 
 ---
 
-Next: [Module 2 - Continuous Integration](../02-ci/README.md)
+**Next up ->** [Day 2 - Continuous Integration](../day2-continuous-integration/notes.md)

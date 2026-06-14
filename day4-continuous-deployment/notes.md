@@ -1,4 +1,4 @@
-# Module 4 - Continuous Deployment
+# Day 4 - Continuous Deployment
 
 > Goal: Take code that has passed CI and get it running safely in the real world, with repeatable builds, controlled releases, and a clear way to undo a deployment when something goes wrong.
 
@@ -815,4 +815,4 @@ jobs:
 
 ---
 
-You have completed the CI/CD learning track. Return to the [course module index](../README.md) or the [main notes index](../../README.md) to continue.
+**Next up ->** [Day 5 - End-to-End Project](../day5-end-to-end-project/notes.md) - put CI, secrets, and CD together into one complete pipeline.

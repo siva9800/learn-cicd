@@ -1,4 +1,4 @@
-# Module 3 - Secrets, Environments & Security
+# Day 3 - Secrets, Environments & Security
 
 > Goal: Learn how to store sensitive values safely, control where and when your code deploys, and let GitHub Actions prove its identity to cloud providers without ever holding a permanent password.
 
@@ -709,4 +709,4 @@ jobs:
 
 ---
 
-Next: [Module 4 - Continuous Deployment ](../04-cd/README.md)
+**Next up ->** [Day 4 - Continuous Deployment](../day4-continuous-deployment/notes.md)

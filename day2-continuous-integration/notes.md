@@ -1,4 +1,4 @@
-# Module 2 - Continuous Integration
+# Day 2 - Continuous Integration
 
 ## Table of Contents
 
@@ -908,4 +908,4 @@ Test yourself before moving on. If you can answer these in your own words, you a
 
 ---
 
-Next: [Module 3 - Secrets & Environments](../03-secrets/README.md)
+**Next up ->** [Day 3 - Secrets & Environments](../day3-secrets-environments/notes.md)

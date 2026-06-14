@@ -1,0 +1,16 @@
+# Service that exposes the demo app inside the cluster and balances traffic
+# across the pods (Kubernetes module, Day 7 - Services).
+apiVersion: v1
+kind: Service
+metadata:
+  name: cicd-demo
+  labels:
+    app: cicd-demo
+spec:
+  type: LoadBalancer        # on a cloud cluster this gives an external IP;
+                            # on Minikube use "minikube service cicd-demo"
+  selector:
+    app: cicd-demo          # sends traffic to all pods with this label
+  ports:
+    - port: 80              # the port users hit
+      targetPort: 5000      # the container port the app listens on
