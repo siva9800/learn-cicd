@@ -19,7 +19,7 @@ flowchart LR
 
 ## Interactive demo
 
-Open [animations/cicd-pipeline.html](animations/cicd-pipeline.html) in any browser. Push a good commit and watch it flow to production; push a buggy commit and watch CI stop it before it ships.
+Open it live online (no download): [**CI/CD Pipeline animation**](https://siva9800.github.io/devops-animations/cicd/cicd-pipeline.html). Push a good commit and watch it flow to production; push a buggy commit and watch CI stop it before it ships.
 
 ## Hands-on demo project
 
