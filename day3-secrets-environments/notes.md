@@ -42,7 +42,7 @@ A **secret** is any sensitive value that must not be exposed publicly:
 ### The Wrong Way (Never Do This)
 
 ```yaml
-# WRONG — hardcoded secret in workflow file
+# WRONG - hardcoded secret in workflow file
 - run: aws s3 cp dist/ s3://my-bucket/ --region us-east-1
   env:
     AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE    # ← PUBLIC! Anyone can see this!
@@ -58,7 +58,7 @@ A **secret** is any sensitive value that must not be exposed publicly:
 ### The Right Way
 
 ```yaml
-# CORRECT — secrets are stored in GitHub, referenced by name
+# CORRECT - secrets are stored in GitHub, referenced by name
 - run: aws s3 cp dist/ s3://my-bucket/
   env:
     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -292,7 +292,7 @@ Restrict which branches can deploy to an environment:
 The same secret name can have different values per environment. For example, `DATABASE_URL` in staging points to the staging database, while in production it points to the production database.
 
 ```yaml
-# No need to change your workflow — environment secrets override repo secrets
+# No need to change your workflow - environment secrets override repo secrets
 jobs:
   deploy-staging:
     environment: staging        # picks up staging DATABASE_URL
@@ -434,7 +434,7 @@ jobs:
 
 ### Default Permissions
 
-By default, `GITHUB_TOKEN` has read/write permissions on most things. You should restrict this:
+The `GITHUB_TOKEN` default depends on repo/org settings: **older repos** default to broad **read/write**, but **new repositories (and orgs) since early 2023 default to read-only `contents` and nothing else**. Do not assume - check **Settings - Actions - General - Workflow permissions**, and set an explicit `permissions:` block so your workflow is the same everywhere:
 
 **In workflow file:**
 ```yaml
@@ -505,10 +505,10 @@ jobs:
 ### 1. Pin Action Versions to Commit SHAs
 
 ```yaml
-# RISKY — a new v4 release could break your workflow or be malicious
+# RISKY - a new v4 release could break your workflow or be malicious
 - uses: actions/checkout@v4
 
-# SAFER — pin to an exact commit SHA
+# SAFER - pin to an exact commit SHA
 - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 ```
 
@@ -517,10 +517,10 @@ Use a tool like Dependabot to keep action versions up to date safely.
 ### 2. Never Echo Secrets
 
 ```yaml
-# WRONG — even though GitHub masks it, don't do this
+# WRONG - even though GitHub masks it, don't do this
 - run: echo "Token is ${{ secrets.MY_TOKEN }}"
 
-# RIGHT — pass secrets via environment variables
+# RIGHT - pass secrets via environment variables
 - run: ./script.sh
   env:
     MY_TOKEN: ${{ secrets.MY_TOKEN }}
@@ -542,7 +542,7 @@ Before using a community action:
 # DANGEROUS without careful conditions
 on: pull_request_target
 
-# SAFER — only runs if PR is not from a fork
+# SAFER - only runs if PR is not from a fork
 on:
   pull_request_target:
     types: [labeled]
@@ -628,8 +628,9 @@ jobs:
         run: |
           echo "Deploying to staging..."
           echo "URL: ${{ secrets.DEPLOY_URL }}"
-          echo "API Key last 4 chars: ...${API_KEY: -4}"
-          # Real deploy command would go here
+          # Do NOT echo any part of a secret (even a slice) - see 8.2 "Never Echo Secrets".
+          # Just USE it; the mask keeps full values out of logs, partial values may not be masked.
+          curl -sf -H "Authorization: Bearer $API_KEY" "${{ secrets.DEPLOY_URL }}/health"
         env:
           API_KEY: ${{ secrets.API_KEY }}
 

@@ -88,12 +88,12 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files first (for Docker layer caching)
-# Docker caches layers — if package.json hasn't changed,
+# Docker caches layers - if package.json hasn't changed,
 # it reuses the cached npm install layer
 COPY package*.json ./
 
-# Install ONLY production dependencies
-RUN npm ci --only=production
+# Install ONLY production dependencies (--only=production is deprecated in npm 7+)
+RUN npm ci --omit=dev
 
 # Copy the rest of the application code
 COPY src/ ./src/
@@ -116,7 +116,7 @@ USER appuser
 # Expose the port the app runs on
 EXPOSE 3000
 
-# Health check — Docker will use this to know if the container is healthy
+# Health check - Docker will use this to know if the container is healthy
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:3000/health || exit 1
 
@@ -232,6 +232,37 @@ Build for both AMD64 and ARM64 (for Apple Silicon Macs and AWS Graviton):
           push: true
           tags: ghcr.io/${{ github.repository }}:latest
 ```
+
+### Supply-Chain Security (sign your images, prove what is inside)
+
+Day 3 secured your *credentials*. This secures your *artifacts* - so a consumer can verify the image really came from your pipeline and was not tampered with. Three standard practices:
+
+- **Sign the image** with [cosign](https://github.com/sigstore/cosign) so its origin can be verified (keyless, using the workflow's OIDC identity - no keys to manage).
+- **Generate an SBOM** (Software Bill of Materials) - a list of everything inside the image, so you can answer "are we affected by CVE-X?" in seconds.
+- **Attach build provenance** - a signed record of how/where the image was built (SLSA).
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+  id-token: write          # required for keyless cosign signing (OIDC)
+
+steps:
+  - uses: docker/build-push-action@v5
+    id: build
+    with:
+      context: .
+      push: true
+      tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+      sbom: true                       # build-push-action can emit an SBOM
+      provenance: true                 # ...and SLSA build provenance
+
+  - uses: sigstore/cosign-installer@v3
+  - name: Sign the image (keyless)
+    run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+```
+
+Anyone can then `cosign verify` the image before running it. This is increasingly required in regulated and enterprise environments.
 
 ---
 
@@ -476,11 +507,20 @@ For Docker images, the commit SHA is a reliable, unique, immutable tag:
 
 ```yaml
 env:
-  IMAGE_TAG: ${{ github.sha }}    # e.g., abc1234def5678...
-
-# Short SHA (more readable):
-  IMAGE_TAG: ${{ github.sha | head -c 7 }}
+  IMAGE_TAG: ${{ github.sha }}    # full SHA, e.g. abc1234def5678...
 ```
+
+Want a short SHA? You **cannot** pipe to a shell command inside `${{ }}` - `${{ github.sha | head -c 7 }}` is invalid. Compute it in a `run` step and expose it as an output:
+
+```yaml
+      - name: Short SHA
+        id: vars
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Use it
+        run: echo "Tag is sha-${{ steps.vars.outputs.short_sha }}"
+```
+
+Or skip the manual work entirely and let `docker/metadata-action` generate a `sha-` tag for you (shown in Section 2).
 
 ---
 
@@ -622,10 +662,11 @@ After deploying, automatically verify the app is working:
       - name: Rollback on failure
         if: failure()
         run: |
-          echo "Smoke tests failed — rolling back!"
-          # Trigger rollback workflow
+          echo "Smoke tests failed - rolling back!"
+          # Trigger rollback workflow. github.event.before is the commit SHA that
+          # was on the branch BEFORE this push - i.e. the last good version.
           gh workflow run rollback.yml \
-            -f image_tag=sha-${{ env.PREVIOUS_SHA }} \
+            -f image_tag=sha-${{ github.event.before }} \
             -f reason="Automated rollback: smoke tests failed"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -664,7 +705,7 @@ Build a complete CD pipeline that:
 
 ```yaml
 # .github/workflows/cd.yml
-name: CD — Deploy
+name: CD - Deploy
 # GitFlow CD mapping:
 #   develop branch push  → build image → deploy to staging (automatic)
 #   version tag (v*.*.*)  → build image → deploy to production (with approval)

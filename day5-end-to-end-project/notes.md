@@ -90,6 +90,12 @@ on:
   pull_request:
     branches: [main]
 
+# Never let two deploys to the same ref overlap (a classic production hazard).
+# cancel-in-progress: false lets an in-flight rollout finish instead of being killed.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -101,13 +107,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5      # the demo app is a Flask (Python) app
         with:
-          node-version: "20"
-          cache: "npm"
-      - run: npm ci
-      - run: npm test
-      - run: npm run lint
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - run: pytest                         # tests as a gate
+      - run: flake8 .                       # lint
 
   # ---------- Stage 2: Build and push the image (Day 4) ----------
   build:
@@ -139,14 +145,21 @@ jobs:
     environment: staging             # environment-scoped secrets (Day 3)
     steps:
       - uses: actions/checkout@v4
-      - name: Set image and apply manifests
+      # kubectl is preinstalled on ubuntu runners. The kubeconfig is stored as a
+      # base64 secret; decode it to a file and point KUBECONFIG at it so kubectl
+      # talks to the RIGHT cluster. WITHOUT this step kubectl reaches no cluster.
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+      - name: Set image and roll out
         run: |
           kubectl set image deployment/web \
             web=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             -n staging
           kubectl rollout status deployment/web -n staging
-        env:
-          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_STAGING }}
+      - name: Smoke test (staging)
+        run: curl -f https://staging.myapp.example.com/health
 
   # ---------- Stage 4: Deploy to production (gated) ----------
   deploy-production:
@@ -156,22 +169,30 @@ jobs:
     environment: production          # requires manual approval (Day 3)
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy and verify
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+      - name: Set image and roll out
         run: |
           kubectl set image deployment/web \
             web=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             -n production
           kubectl rollout status deployment/web -n production
-      - name: Smoke test
+      - name: Smoke test (production)
         run: curl -f https://myapp.example.com/health
 ```
+
+> **Branching note:** this capstone triggers on a single `main` branch (GitHub Flow) to keep the focus on the pipeline. Day 1 introduced the fuller **GitFlow** model (feature/develop/release branches) - the same pipeline works there, you would just add `develop` to the branch filters and gate production on a release branch or tag.
 
 What this gives you, mapped to the course:
 - A buggy commit is stopped at `test` and never builds or deploys (Day 2).
 - The image is tagged with the immutable commit SHA, not `latest` (Day 4).
 - The build job has only the permissions it needs (Day 3 - least privilege).
 - Staging deploys automatically; production waits for a human to approve (Day 3 - environments and approval gates).
-- `kubectl rollout status` ties back to Kubernetes rolling updates (Module 4, Day 6), and a failed rollout fails the pipeline.
+- The `kubectl` steps only work because a **Configure kubectl** step decodes the kubeconfig secret first - a common thing people forget.
+- **Both** staging and production run a smoke test after deploy (Day 4), and a failed rollout or smoke test fails the pipeline.
+- The `concurrency` guard stops two deploys racing to the same environment.
 
 > **Interactive demo:** open [`../animations/cicd-pipeline.html`](../animations/cicd-pipeline.html) to watch a commit flow through these exact stages, including the approval gate.
 

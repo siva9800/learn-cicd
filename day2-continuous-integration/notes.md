@@ -1,5 +1,16 @@
 # Day 2 - Continuous Integration
 
+> **Goal:** Turn every push and pull request into an automatic quality gate - install dependencies, run tests, lint, build across versions, cache for speed, publish artifacts, and block any merge that breaks the build.
+
+## Learning Objectives
+
+By the end of this lesson you will be able to:
+- Build a CI workflow that installs, tests, and lints an app on every push and PR.
+- Run tests across multiple versions in parallel with a **matrix**.
+- Speed up builds by **caching** dependencies the right way.
+- Produce and download **build artifacts**.
+- Enforce quality with **status checks + branch protection** so broken code cannot merge.
+
 ## Table of Contents
 
 1. [What a CI Pipeline Does](#1-what-a-ci-pipeline-does)
@@ -10,7 +21,8 @@
 6. [Caching Dependencies](#6-caching-dependencies)
 7. [Build Artifacts](#7-build-artifacts)
 8. [Status Checks & Branch Protection](#8-status-checks--branch-protection)
-9. [Lab - Full CI Pipeline](#lab--full-ci-pipeline)
+9. [Reusable Workflows and Composite Actions](#9-reusable-workflows-and-composite-actions-stop-repeating-yourself)
+10. [Lab - Full CI Pipeline](#lab--full-ci-pipeline)
 
 ---
 
@@ -279,7 +291,9 @@ Steps can produce outputs that later steps can use:
 steps:
   - name: Get version
     id: version          # give the step an ID to reference later
-    run: echo "version=$(cat package.json | python3 -c "import sys,json;print(json.load(sys.stdin)['version'])")" >> $GITHUB_OUTPUT
+    # Read the version straight from package.json (node is already set up).
+    # jq -r .version package.json also works if you prefer.
+    run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
   - name: Use version
     run: echo "Building version ${{ steps.version.outputs.version }}"
@@ -407,7 +421,7 @@ Prettier enforces a consistent code style automatically. In CI, you check that c
 ### What is a Matrix Build?
 
 A **matrix build** lets you run the same job with different configurations in parallel. This is how you test that your code works on:
-- Multiple Node.js versions (16, 18, 20)
+- Multiple Node.js versions (e.g. 18, 20, 22 - use current/LTS versions, not end-of-life ones)
 - Multiple operating systems (Ubuntu, Windows, macOS)
 - Multiple Python versions
 - Multiple database versions
@@ -424,11 +438,11 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [16, 18, 20]
+        node-version: [18, 20, 22]
         # This creates 3 jobs:
-        #   test (node-version: 16)
         #   test (node-version: 18)
         #   test (node-version: 20)
+        #   test (node-version: 22)
         # All run in parallel!
 
     steps:
@@ -494,7 +508,7 @@ strategy:
 strategy:
   fail-fast: false   # default is true
   matrix:
-    node-version: [16, 18, 20]
+    node-version: [18, 20, 22]
 
 # fail-fast: true (default) - if one matrix job fails, cancel all others
 # fail-fast: false - let all matrix jobs run regardless of failures
@@ -536,24 +550,23 @@ flowchart TD
 
 ### Manual Cache (More Control)
 
+Cache the package manager's **download cache** (`~/.npm`), NOT `node_modules` itself, and **always run `npm ci`**. Caching `node_modules` directly is a common anti-pattern: it can hold platform-specific binaries that break on a different runner, and skipping `npm ci` on a cache hit bypasses the integrity checks that make `npm ci` reliable.
+
 ```yaml
-- name: Cache node_modules
+- name: Cache npm downloads
   uses: actions/cache@v4
-  id: cache
   with:
-    path: node_modules           # what to cache
-    key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-    # key: unique identifier for this cache entry
-    # hashFiles() computes a hash of the lock file
-    # If the lock file changes, the hash changes, the key changes, cache misses
+    path: ~/.npm                 # the npm DOWNLOAD cache (not node_modules)
+    key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+    # If package-lock.json changes, the hash changes -> new key -> cache miss (correct).
     restore-keys: |
-      ${{ runner.os }}-node-     # fallback: use a partial match cache
+      ${{ runner.os }}-npm-      # fallback: reuse an older cache to speed the install
 
 - name: Install dependencies
-  if: steps.cache.outputs.cache-hit != 'true'
-  run: npm ci
-  # Only install if cache missed (files are already there if cache hit)
+  run: npm ci                    # ALWAYS run - it is fast on a warm cache AND verifies integrity
 ```
+
+> `actions/setup-node` with `cache: 'npm'` (shown above) already does exactly this for you. Reach for the manual `actions/cache` only for something `setup-node` does not cover (a build output directory, a non-standard tool, etc.).
 
 ### Python Cache
 
@@ -710,6 +723,78 @@ These statuses appear on:
         context: 'my-custom-check'
       })
 ```
+
+---
+
+## 9. Reusable Workflows and Composite Actions (Stop Repeating Yourself)
+
+Notice how every job starts the same way: `checkout`, `setup-node`, `npm ci`. Copying that into your lint, test, and build jobs is exactly the duplication CI/CD is supposed to remove. Two tools fix it.
+
+### Composite actions - bundle repeated STEPS
+
+A composite action packages a sequence of steps into **one reusable step**. Put it in your repo at `.github/actions/setup/action.yml`:
+
+```yaml
+# .github/actions/setup/action.yml
+name: Setup
+description: Checkout, install Node, and restore dependencies
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+        cache: "npm"
+    - run: npm ci
+      shell: bash          # composite 'run' steps MUST declare a shell
+```
+
+Every job then collapses to a single line:
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/setup    # the whole checkout + node + install
+      - run: npm test
+```
+
+### Reusable workflows - share a whole JOB across workflows or repos
+
+A reusable workflow is a full workflow other workflows can **call** with `on: workflow_call`:
+
+```yaml
+# .github/workflows/ci.yml  (the reusable one)
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: "20"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+      - run: npm ci && npm test
+```
+
+```yaml
+# any other workflow calls it (even from another repo, pinned to a tag)
+jobs:
+  call-ci:
+    uses: ./.github/workflows/ci.yml     # or my-org/shared/.github/workflows/ci.yml@v1
+    with:
+      node-version: "22"
+```
+
+> **Which one?** A **composite action** bundles **steps** and runs inside an existing job - perfect for a repeated step sequence. A **reusable workflow** bundles **whole jobs** (its own runners) and is meant to standardise entire pipelines across many repositories.
 
 ---
 

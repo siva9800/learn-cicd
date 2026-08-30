@@ -402,6 +402,31 @@ jobs:
 - Most common CLI tools
 - See full list: https://github.com/actions/runner-images
 
+**Self-hosted runners:** when you need something GitHub's machines do not offer - a specific GPU, a box inside your private network, or a large warm cache - you can register **your own** machine with `runs-on: self-hosted`. You then maintain and secure it, and (unlike hosted runners) it is **not** wiped between jobs, so treat it carefully. Rule of thumb: use GitHub-hosted runners unless you have a concrete reason not to.
+
+```yaml
+jobs:
+  build:
+    runs-on: [self-hosted, gpu]   # your machine, matched by its labels
+```
+
+**Always give a job a timeout** so a hung step cannot run for hours and burn your minutes:
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15           # kill the job if it exceeds 15 minutes
+```
+
+**Prevent overlapping runs** of the same workflow/branch with `concurrency` - essential for deploys, so two runs never fight over one environment:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true        # cancel an older in-progress run (use false for deploys)
+```
+
 ---
 
 ### Actions
