@@ -61,6 +61,27 @@ flowchart TD
 | Code coverage | Ensure new code has tests |
 | Build | Verify the app actually compiles/builds |
 
+### Is CI just tests, or also building and artifacts? (the common confusion)
+
+You will hear both, so here is the accurate answer:
+
+- CI is first a **practice**: integrate your code into the shared branch **often**, and **automatically verify every integration**. The original definition is literally an *"automated build, including tests"* - so **building was part of CI from the start**, not an afterthought.
+- A real CI pipeline does **build + test + lint**, and usually **packages the result into a versioned artifact** (a binary, a package, or a Docker image). Tests are the most *visible* part, which is why people say "CI is tests" - but that is only a slice.
+
+**Where does CI end?** At a **tested, packaged artifact**. CI does **not** deploy. The artifact is the **handoff to CD**:
+
+```
+CI:  integrate -> build -> test -> lint -> package
+                                              |
+                                              v   [verified, versioned artifact]
+                                              |
+CD:  take that artifact -> deploy / release it
+```
+
+So: **"CI = just tests" is too narrow.** CI **builds and tests (and packages)**; **CD deploys**. Building the artifact belongs to CI; *shipping* it belongs to CD.
+
+> One more source of the confusion: people mix up **CI the practice** (integrate frequently) with **CI the pipeline** (the automated build/test/package job that runs on every push). In everyday talk, "CI" usually means that pipeline.
+
 ---
 
 ## 2. Setting Up a Sample App
