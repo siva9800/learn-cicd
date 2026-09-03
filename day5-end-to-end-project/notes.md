@@ -4,7 +4,7 @@
 
 This is the capstone of the entire DevOps course. Everything you learned - Git, Terraform, Docker, Kubernetes, and the four CI/CD lessons - comes together here into one repeatable workflow.
 
-> **Build it for real:** the [`demo/`](../demo/README.md) folder is a complete, runnable version of everything in this lesson - a Flask app with tests, a Dockerfile, Kubernetes manifests, and working GitHub Actions pipelines. Read this lesson for the concepts, then go run the demo to watch them happen.
+> **Build it for real:** the [`fastapi-demo/`](../fastapi-demo/README.md) folder is a complete, runnable version of everything in this lesson - a FastAPI app with tests, a Dockerfile, Kubernetes manifests, and **live** GitHub Actions pipelines (CI + CD). Read this lesson for the concepts, then go run the demo to watch them happen.
 
 ---
 
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5      # the demo app is a Flask (Python) app
+      - uses: actions/setup-python@v5      # the demo app is a FastAPI (Python) app
         with:
           python-version: "3.12"
           cache: "pip"

@@ -2,7 +2,7 @@
 
 > **Goal:** Turn every push and pull request into an automatic **quality gate** that answers one question - *"is this change safe to merge?"* - by installing, testing, linting, and packaging the app, and blocking any merge that breaks the build.
 
-We use **one small app the whole way through** - the Python **Flask** app in [`../demo/`](../demo/README.md) - so the concepts here connect directly to the runnable demo you finish the lesson with. The ideas are identical in Node, Go, or Java; only the commands change.
+We use **one small app the whole way through** - the Python **FastAPI** app in [`../fastapi-demo/`](../fastapi-demo/README.md) - so the concepts here connect directly to the runnable demo you finish the lesson with. The ideas are identical in Node, Go, or Java; only the commands change.
 
 ## Learning Objectives
 
@@ -96,12 +96,12 @@ Two facts that explain almost everything else in this lesson:
 
 ## 3. The Demo App We Will Use
 
-A tiny **Flask** app - deliberately small so the focus stays on the *pipeline*, not the app. The full runnable version (Dockerfile, k8s manifests, workflows) lives in [`../demo/`](../demo/README.md).
+A tiny **FastAPI** app - deliberately small so the focus stays on the *pipeline*, not the app. The full runnable version (Dockerfile, k8s manifests, workflows) lives in [`../fastapi-demo/`](../fastapi-demo/README.md).
 
 ```
-demo/
-├── app/main.py            # the Flask app: GET / and GET /health
-├── tests/test_app.py      # pytest tests (what CI runs)
+fastapi-demo/
+├── app/main.py            # the FastAPI app: GET / and GET /health
+├── tests/test_main.py     # pytest tests (what CI runs)
 ├── requirements.txt       # pinned dependencies
 ├── .flake8                # lint config
 ├── Dockerfile             # packages the app (used by CD, Day 4)
@@ -112,56 +112,54 @@ demo/
 
 ```python
 import os
-from flask import Flask, jsonify
+from fastapi import FastAPI
 
-app = Flask(__name__)
+app = FastAPI(title="CI/CD Demo")
 # Version comes from an env var so a deploy can PROVE a new version shipped.
 APP_VERSION = os.getenv("APP_VERSION", "dev")
 
-@app.route("/")
+@app.get("/")
 def home():
-    return f"<h1>Hello from the CI/CD demo!</h1><p>Version: {APP_VERSION}</p>"
+    return {"message": "Hello from the CI/CD demo!", "version": APP_VERSION}
 
-@app.route("/health")
+@app.get("/health")
 def health():
     # Kubernetes probes and the pipeline smoke test both call this.
-    return jsonify(status="ok", version=APP_VERSION)
+    return {"status": "ok", "version": APP_VERSION}
 ```
 
-### `tests/test_app.py`
+### `tests/test_main.py`
 
 ```python
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
-import main  # noqa: E402
+from fastapi.testclient import TestClient
+from app.main import app
 
-def client():
-    main.app.config["TESTING"] = True
-    return main.app.test_client()
+client = TestClient(app)   # calls the app in-process - no running server needed
 
 def test_home_returns_200():
-    r = client().get("/")
+    r = client.get("/")
     assert r.status_code == 200
-    assert b"Hello from the CI/CD demo" in r.data
+    assert r.json()["message"].startswith("Hello")
 
 def test_health_returns_ok():
-    r = client().get("/health")
+    r = client.get("/health")
     assert r.status_code == 200
-    assert r.get_json()["status"] == "ok"
+    assert r.json()["status"] == "ok"
 
 def test_unknown_route_returns_404():
-    assert client().get("/nope").status_code == 404
+    assert client.get("/nope").status_code == 404
 ```
 
 ### `requirements.txt` (pinned)
 
 ```
-flask==3.0.3
-gunicorn==22.0.0
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+httpx==0.27.0        # required by FastAPI's TestClient
 pytest==8.2.0
 ```
 
-> **Why pin exact versions (`==`)?** So CI installs the **same** dependencies every time. If you wrote `flask>=3` instead, a new Flask release could change behaviour and turn your pipeline red for no code change of yours. Pinning is the Python equivalent of committing a lock file. (In Node the same idea is enforced by `npm ci`, which installs exactly what `package-lock.json` says.)
+> **Why pin exact versions (`==`)?** So CI installs the **same** dependencies every time. If you wrote `fastapi>=0.111` instead, a new release could change behaviour and turn your pipeline red for no code change of yours. Pinning is the Python equivalent of committing a lock file. (In Node the same idea is enforced by `npm ci`, which installs exactly what `package-lock.json` says.)
 
 ---
 
@@ -501,61 +499,21 @@ jobs:
 
 ## 10. CI Demo - Watch It Work
 
-Concepts click when you *see* CI block a broken change. This uses the Flask app in [`../demo/`](../demo/README.md).
+Concepts click when you *see* CI block a broken change. The runnable version of everything above is the **FastAPI app in [`../fastapi-demo/`](../fastapi-demo/README.md)**, and its CI **already runs live in this repo** - the workflow sits at the repository root and is path-filtered to `fastapi-demo/**`. Full step-by-step is in [`../fastapi-demo/ci/README.md`](../fastapi-demo/ci/README.md); the short version:
 
-> **Key detail:** GitHub only runs workflows that live at the **repository root** under `.github/workflows/`. The demo keeps them in `demo/.github/workflows/` for reading, so to run them you copy the demo contents to a repo root.
+1. **Push and watch it pass.** Change anything under `fastapi-demo/`, push, open the **Actions** tab, and watch `lint`, `test (3.11)`, `test (3.12)`, and `build` go green.
 
-### Step 1 - Put the demo in a GitHub repo
+2. **Break a test on purpose** - in [`../fastapi-demo/app/main.py`](../fastapi-demo/app/main.py) make `/health` return the wrong status, then push it as a PR:
+   ```python
+   @app.get("/health")
+   def health():
+       return {"status": "broken", "version": APP_VERSION}   # test expects "ok"
+   ```
+   Watch **CI go red**: `test_health_returns_ok` fails and the PR shows a red X - the break is caught before it reaches `main`.
 
-```bash
-# In a new, empty GitHub repo cloned locally:
-cp -r path/to/demo/* path/to/demo/.github .     # copy app, tests, requirements, AND .github
-git add .
-git commit -m "Add CI demo app"
-git push origin main
-```
+3. **Make the gate real.** Turn on branch protection for `main` (Section 8) and require the `test` check. Now the red PR shows **"Merging is blocked"** - the button is disabled.
 
-Your repo root now has `app/`, `tests/`, `requirements.txt`, and `.github/workflows/ci.yml`.
-
-### Step 2 - Watch CI pass
-
-Open the repo's **Actions** tab. The **CI** workflow is already running:
-
-```mermaid
-flowchart LR
-    Push["git push"] --> Job["CI job: checkout -> setup-python -> pip install -> flake8 -> pytest"]
-    Job -->|all pass| Green["Green check on the commit"]
-```
-
-You will see the steps stream live, then a green check. Congratulations - that is CI.
-
-### Step 3 - Break a test on purpose (the important part)
-
-Change the app so a test fails - e.g. in `app/main.py` make `/health` return the wrong status:
-
-```python
-@app.route("/health")
-def health():
-    return jsonify(status="broken", version=APP_VERSION)   # test expects "ok"
-```
-
-Commit and push (ideally on a branch, as a PR):
-
-```bash
-git checkout -b break-it
-git commit -am "Break the health check"
-git push origin break-it        # then open a Pull Request on GitHub
-```
-
-Watch the **CI go red**: `test_health_returns_ok` fails, and the PR shows a red X with the exact failure. **This is CI doing its job** - catching the break before it reaches `main`.
-
-### Step 4 - Make the gate real with branch protection
-
-Turn on branch protection for `main` (Section 8) and require the **Test** check. Now the red PR shows **"Merging is blocked"** - the button is disabled. Broken code physically cannot merge.
-
-### Step 5 - Fix it and go green
-
-Revert the change (`status="ok"`), push again, watch CI turn green, and the Merge button unlocks.
+4. **Fix it, go green.** Revert to `status="ok"`, push, watch CI turn green, and the Merge button unlocks.
 
 ```mermaid
 flowchart LR
@@ -564,7 +522,7 @@ flowchart LR
     Fix --> GreenM["CI green -> merge allowed"]
 ```
 
-**What you just proved:** CI + branch protection means the only code that reaches `main` is code that built and passed its tests. That guarantee is the entire point of Continuous Integration.
+**What you just proved:** CI + branch protection means the only code that reaches `main` is code that lint-passed and tested green. That guarantee is the entire point of Continuous Integration.
 
 ---
 
@@ -652,7 +610,7 @@ Copy this to `.github/workflows/ci.yml` in your demo repo, push, and open the Ac
 
 ## Common Mistakes
 
-- **Not pinning dependencies.** `flask>=3` lets a new release change behaviour and turn CI red with no code change of yours. Pin exact versions (`flask==3.0.3`) so every run installs the same thing.
+- **Not pinning dependencies.** `fastapi>=0.111` lets a new release change behaviour and turn CI red with no code change of yours. Pin exact versions (`fastapi==0.111.0`) so every run installs the same thing.
 - **Not pinning action versions.** `uses: actions/checkout` with no version means a future update can break your pipeline overnight. Pin `@v4` (or a full commit SHA for stricter security).
 - **Push-only CI.** Running only on `push` tells you it broke *after* it is on `main`. Add `pull_request` so the gate fails while it is still a PR.
 - **Forgetting `fail-fast: false` in a matrix.** The default cancels the other combinations at the first failure, hiding the rest. Set it `false` to see every failure.

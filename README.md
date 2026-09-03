@@ -23,7 +23,7 @@ Open it live online (no download): [**CI/CD Pipeline animation**](https://siva98
 
 ## Hands-on demo project
 
-The [`demo/`](demo/) folder is a complete, runnable project - a small Python Flask app with tests, a Dockerfile, Kubernetes manifests, and ready-to-use GitHub Actions workflows. Use it to show students a real pipeline end to end: push code, watch CI test it, build and push an image, and deploy to Kubernetes. See [demo/README.md](demo/README.md) for a step-by-step walkthrough and a suggested 30-minute class demo flow.
+The [`fastapi-demo/`](fastapi-demo/) folder is a complete, runnable project - a small Python FastAPI app with tests, a Dockerfile, Kubernetes manifests, and **live** GitHub Actions workflows (CI + CD) that run from the repo root. Use it to show students a real pipeline end to end: push code, watch CI test it, build and push an image, and deploy to Kubernetes. See [fastapi-demo/README.md](fastapi-demo/README.md) for the walkthrough, with concept notes in [ci/](fastapi-demo/ci/README.md) and [cd/](fastapi-demo/cd/README.md).
 
 ## Course structure
 
