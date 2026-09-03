@@ -6,13 +6,15 @@ name: CI (fastapi-demo)
 
 on:
   push:
+    branches: [main]                  # only on pushes to main...
     paths:
-      - "fastapi-demo/**"
+      - "fastapi-demo/**"             # ...that change the app (or this workflow)
       - ".github/workflows/ci.yml"
   pull_request:
+    branches: [main]                  # and on PRs targeting main (the pre-merge gate)
     paths:
       - "fastapi-demo/**"
-  workflow_dispatch:          # lets you run it manually (Actions tab "Run workflow", or gh CLI)
+  workflow_dispatch:                  # or manually (Actions tab "Run workflow", or gh CLI)
 
 defaults:
   run:
