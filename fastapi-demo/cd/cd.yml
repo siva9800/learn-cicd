@@ -1,0 +1,80 @@
+# =============================================================================
+# TEACHING COPY of the CD workflow (read this in class).
+# The LIVE copy that GitHub actually runs is at the repo root:
+#     .github/workflows/cd.yml   (identical to this file)
+# =============================================================================
+name: CD (fastapi-demo)
+
+# CI GATES CD: this runs ONLY AFTER the CI workflow finishes successfully on main.
+# That is the "only a CI-verified commit gets deployed" rule, enforced across two
+# separate workflows with the workflow_run trigger.
+on:
+  workflow_run:
+    workflows: ["CI (fastapi-demo)"]
+    types: [completed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/fastapi-demo   # ghcr.io/<owner>/<repo>/fastapi-demo
+
+jobs:
+  # --- Build the real artifact and publish it to the registry (live) ---
+  build-push:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}   # only if CI passed
+    permissions:
+      contents: read
+      packages: write                # push to GHCR using the built-in GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}   # build the EXACT commit CI tested
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: fastapi-demo
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.workflow_run.head_sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  # --- Deploy to Kubernetes (runs only if a KUBECONFIG_DATA secret is configured) ---
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: build-push
+    env:
+      KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
+      IMAGE: ghcr.io/${{ github.repository }}/fastapi-demo:${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: No kubeconfig secret? Skip cleanly.
+        if: env.KUBECONFIG_DATA == ''
+        run: |
+          echo "KUBECONFIG_DATA secret is not set, so the live deploy is skipped."
+          echo "The image was built and pushed to GHCR. Add a base64 kubeconfig as the"
+          echo "KUBECONFIG_DATA repo secret to turn CD on (see README.md in this folder)."
+
+      - name: Configure kubectl
+        if: env.KUBECONFIG_DATA != ''
+        run: |
+          echo "$KUBECONFIG_DATA" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Deploy (rolling update)
+        if: env.KUBECONFIG_DATA != ''
+        run: |
+          NS="${{ vars.K8S_NAMESPACE || 'default' }}"
+          kubectl set image deployment/fastapi-demo fastapi-demo="$IMAGE" -n "$NS"
+          kubectl rollout status deployment/fastapi-demo -n "$NS"
+
+      - name: Smoke test
+        if: env.KUBECONFIG_DATA != ''
+        run: echo "Add your app URL here, e.g. curl -f https://<host>/health"

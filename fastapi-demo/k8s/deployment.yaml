@@ -1,0 +1,43 @@
+# Kubernetes Deployment for the FastAPI demo.
+# The CD pipeline updates this Deployment's image on every release.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-demo
+  labels:
+    app: fastapi-demo
+spec:
+  replicas: 2                      # two pods, so rolling updates are zero-downtime
+  selector:
+    matchLabels:
+      app: fastapi-demo
+  template:
+    metadata:
+      labels:
+        app: fastapi-demo
+    spec:
+      containers:
+        - name: fastapi-demo
+          # PLACEHOLDER - the CD pipeline replaces this with the real image:sha.
+          image: ghcr.io/OWNER/REPO/fastapi-demo:latest
+          ports:
+            - containerPort: 8000
+          readinessProbe:           # gates traffic until the app is ready (Day 21)
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:            # restarts the container if it wedges
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:                # requests/limits (Day 16)
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
