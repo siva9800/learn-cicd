@@ -2,6 +2,8 @@
 
 > **What CD does here:** once CI passes on `main`, it **builds and pushes the image to GHCR** (live, out of the box), then **deploys to Kubernetes** if you have configured a kubeconfig. Concepts from [Day 4](../../day4-continuous-deployment/notes.md) and [Day 5](../../day5-end-to-end-project/notes.md), running for real.
 
+> **Detailed concept reference:** for **every CD feature** used here - `workflow_run` gating, image build/push, registries + tagging, secrets, permissions + OIDC, environments + approval gates, Kubernetes deploy, deployment strategies, smoke tests, rollback, concurrency - explained clearly and mapped to our real `cd.yml`, see **[concepts.md](concepts.md)**.
+
 The workflow is [`cd.yml`](cd.yml) in this folder (a teaching copy). The one that actually runs is the identical file at the repo root: `.github/workflows/cd.yml`.
 
 ---

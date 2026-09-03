@@ -2,6 +2,8 @@
 
 > **What CI does here:** on every push and pull request that touches `fastapi-demo/`, it **lints**, **tests** (on two Python versions), and **builds the image** - and blocks the change if any of that fails. Concepts from [Day 2](../../day2-continuous-integration/notes.md), running for real.
 
+> **Detailed concept reference:** for **every GitHub Actions feature** used here - triggers (all kinds), jobs, `needs`, steps, actions, contexts/expressions, `if`, **matrix**, **caching**, **artifacts**, outputs, permissions, reusable workflows, branch protection - explained clearly and mapped to our real `ci.yml`, see **[concepts.md](concepts.md)**.
+
 The workflow is [`ci.yml`](ci.yml) in this folder (a teaching copy). The one that actually runs is the identical file at the repo root: `.github/workflows/ci.yml`.
 
 ---
