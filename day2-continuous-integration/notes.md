@@ -1,72 +1,47 @@
 # Day 2 - Continuous Integration
 
-> **Goal:** Turn every push and pull request into an automatic quality gate - install dependencies, run tests, lint, build across versions, cache for speed, publish artifacts, and block any merge that breaks the build.
+> **Goal:** Turn every push and pull request into an automatic **quality gate** that answers one question - *"is this change safe to merge?"* - by installing, testing, linting, and packaging the app, and blocking any merge that breaks the build.
+
+We use **one small app the whole way through** - the Python **Flask** app in [`../demo/`](../demo/README.md) - so the concepts here connect directly to the runnable demo you finish the lesson with. The ideas are identical in Node, Go, or Java; only the commands change.
 
 ## Learning Objectives
 
 By the end of this lesson you will be able to:
-- Build a CI workflow that installs, tests, and lints an app on every push and PR.
-- Run tests across multiple versions in parallel with a **matrix**.
-- Speed up builds by **caching** dependencies the right way.
-- Produce and download **build artifacts**.
+- Explain what CI actually is (a practice **and** a pipeline) and where it ends.
+- Build a CI workflow that installs, tests, and lints the app on every push and PR.
+- Make CI **fast and trustworthy** with matrix builds and dependency caching.
+- Produce and store **build artifacts**.
 - Enforce quality with **status checks + branch protection** so broken code cannot merge.
+- **Run the demo** and watch CI block a broken change with your own eyes.
 
 ## Table of Contents
 
-1. [What a CI Pipeline Does](#1-what-a-ci-pipeline-does)
-2. [Setting Up a Sample App](#2-setting-up-a-sample-app)
-3. [Running Tests Automatically](#3-running-tests-automatically)
-4. [Linting & Code Quality](#4-linting--code-quality)
-5. [Matrix Builds](#5-matrix-builds)
-6. [Caching Dependencies](#6-caching-dependencies)
+1. [What CI Really Is](#1-what-ci-really-is)
+2. [Anatomy of a CI Run](#2-anatomy-of-a-ci-run)
+3. [The Demo App We Will Use](#3-the-demo-app-we-will-use)
+4. [Running Tests Automatically](#4-running-tests-automatically)
+5. [Linting and Code Quality](#5-linting-and-code-quality)
+6. [Making CI Fast and Reliable](#6-making-ci-fast-and-reliable)
 7. [Build Artifacts](#7-build-artifacts)
-8. [Status Checks & Branch Protection](#8-status-checks--branch-protection)
-9. [Reusable Workflows and Composite Actions](#9-reusable-workflows-and-composite-actions-stop-repeating-yourself)
-10. [Lab - Full CI Pipeline](#lab--full-ci-pipeline)
+8. [The Quality Gate: Status Checks and Branch Protection](#8-the-quality-gate-status-checks-and-branch-protection)
+9. [Stop Repeating Yourself: Reusable Workflows and Composite Actions](#9-stop-repeating-yourself-reusable-workflows-and-composite-actions)
+10. [CI Demo - Watch It Work](#10-ci-demo---watch-it-work)
+11. [Lab - Build the Full CI Pipeline](#lab---build-the-full-ci-pipeline)
 
 ---
 
-## 1. What a CI Pipeline Does
+## 1. What CI Really Is
 
-A CI pipeline is the automated gatekeeper for your codebase. Every time a developer pushes code or opens a PR, the pipeline runs and answers one question: **"Is this code safe to merge?"**
+A CI pipeline is the **automated gatekeeper** for your codebase. Every time someone pushes code or opens a pull request, it runs and answers: **"Is this code safe to merge?"**
 
-**A real-world analogy:** A CI pipeline is like a restaurant kitchen where every dish is taste-tested before it leaves the kitchen. The dish (your code change) is checked by several inspectors at once - one tastes it, one checks the presentation, one checks it was cooked safely. Only if all of them approve does the plate go out to the customer. If any inspector says no, the plate goes back and the cook is told exactly what to fix.
-
-### The CI Pipeline Lifecycle
-
-```mermaid
-flowchart TD
-    A[Developer pushes code] --> B[GitHub receives the push]
-    B --> C[GitHub Actions triggers workflow]
-    C --> D[Tests, about 3 min]
-    C --> E[Lint, about 1 min]
-    C --> F[Build, about 2 min]
-    D --> G{All pass?}
-    E --> G
-    F --> G
-    G -->|Yes| H[Green checkmark on PR, safe to merge]
-    G -->|No| I[Red X on PR, block merge and notify developer]
-```
-
-### What CI Checks For
-
-| Check | Why It Matters |
-|---|---|
-| Unit tests | Verify individual functions work correctly |
-| Integration tests | Verify components work together |
-| Linting | Enforce coding standards, catch bugs early |
-| Formatting | Keep code style consistent across team |
-| Type checking | Catch type errors before runtime |
-| Security scanning | Find known vulnerabilities in dependencies |
-| Code coverage | Ensure new code has tests |
-| Build | Verify the app actually compiles/builds |
+> **Analogy:** CI is a restaurant kitchen where every dish is tasted before it leaves. One inspector tastes it, one checks the presentation, one checks it was cooked safely. Only if **all** approve does the plate go out. If any says no, the plate comes back with a note on exactly what to fix.
 
 ### Is CI just tests, or also building and artifacts? (the common confusion)
 
 You will hear both, so here is the accurate answer:
 
 - CI is first a **practice**: integrate your code into the shared branch **often**, and **automatically verify every integration**. The original definition is literally an *"automated build, including tests"* - so **building was part of CI from the start**, not an afterthought.
-- A real CI pipeline does **build + test + lint**, and usually **packages the result into a versioned artifact** (a binary, a package, or a Docker image). Tests are the most *visible* part, which is why people say "CI is tests" - but that is only a slice.
+- A real CI pipeline does **build + test + lint**, and usually **packages the result into a versioned artifact** (a package or a Docker image). Tests are the most *visible* part, which is why people say "CI is tests" - but that is only a slice.
 
 **Where does CI end?** At a **tested, packaged artifact**. CI does **not** deploy. The artifact is the **handoff to CD**:
 
@@ -78,139 +53,121 @@ CI:  integrate -> build -> test -> lint -> package
 CD:  take that artifact -> deploy / release it
 ```
 
-So: **"CI = just tests" is too narrow.** CI **builds and tests (and packages)**; **CD deploys**. Building the artifact belongs to CI; *shipping* it belongs to CD.
+So **"CI = just tests" is too narrow.** CI **builds and tests (and packages)**; **CD deploys**. Building the artifact belongs to CI; *shipping* it belongs to CD.
 
-> One more source of the confusion: people mix up **CI the practice** (integrate frequently) with **CI the pipeline** (the automated build/test/package job that runs on every push). In everyday talk, "CI" usually means that pipeline.
-
----
-
-## 2. Setting Up a Sample App
-
-We'll use a simple Node.js app throughout this module. The same concepts apply to Python, Go, Java, etc.
-
-### The App
-
-```
-02-ci/app/
-├── src/
-│   ├── index.js       ← entry point
-│   ├── calculator.js  ← business logic
-│   └── utils.js       ← utilities
-├── tests/
-│   ├── calculator.test.js
-│   └── utils.test.js
-├── package.json
-└── .eslintrc.json
-```
-
-### `package.json`
-
-```json
-{
-  "name": "learn-cicd-app",
-  "version": "1.0.0",
-  "scripts": {
-    "start": "node src/index.js",
-    "test": "jest --coverage",
-    "test:watch": "jest --watch",
-    "lint": "eslint src/ tests/",
-    "lint:fix": "eslint src/ tests/ --fix",
-    "build": "echo 'Build step - would compile/bundle here'"
-  },
-  "dependencies": {
-    "express": "^4.18.2"
-  },
-  "devDependencies": {
-    "jest": "^29.0.0",
-    "eslint": "^8.0.0",
-    "@eslint/js": "^8.0.0"
-  }
-}
-```
-
-### `src/calculator.js` (sample business logic)
-
-```javascript
-/**
- * Adds two numbers together.
- * @param {number} a
- * @param {number} b
- * @returns {number}
- */
-function add(a, b) {
-  if (typeof a !== 'number' || typeof b !== 'number') {
-    throw new TypeError('Arguments must be numbers');
-  }
-  return a + b;
-}
-
-/**
- * Subtracts b from a.
- */
-function subtract(a, b) {
-  if (typeof a !== 'number' || typeof b !== 'number') {
-    throw new TypeError('Arguments must be numbers');
-  }
-  return a - b;
-}
-
-/**
- * Divides a by b.
- * @throws {Error} if b is zero
- */
-function divide(a, b) {
-  if (b === 0) {
-    throw new Error('Cannot divide by zero');
-  }
-  return a / b;
-}
-
-module.exports = { add, subtract, divide };
-```
-
-### `tests/calculator.test.js`
-
-```javascript
-const { add, subtract, divide } = require('../src/calculator');
-
-describe('Calculator', () => {
-  describe('add()', () => {
-    test('adds two positive numbers', () => {
-      expect(add(2, 3)).toBe(5);
-    });
-
-    test('adds negative numbers', () => {
-      expect(add(-1, -2)).toBe(-3);
-    });
-
-    test('throws TypeError for non-numbers', () => {
-      expect(() => add('a', 1)).toThrow(TypeError);
-    });
-  });
-
-  describe('subtract()', () => {
-    test('subtracts correctly', () => {
-      expect(subtract(10, 4)).toBe(6);
-    });
-  });
-
-  describe('divide()', () => {
-    test('divides correctly', () => {
-      expect(divide(10, 2)).toBe(5);
-    });
-
-    test('throws Error when dividing by zero', () => {
-      expect(() => divide(10, 0)).toThrow('Cannot divide by zero');
-    });
-  });
-});
-```
+> One more source of confusion: people mix up **CI the practice** (integrate frequently) with **CI the pipeline** (the automated job that runs on every push). In everyday talk, "CI" usually means that pipeline - which is what this whole lesson builds.
 
 ---
 
-## 3. Running Tests Automatically
+## 2. Anatomy of a CI Run
 
-### The Basic Test Workflow
+Every CI run is the same shape, whatever the language. On a push or PR, GitHub spins up a **fresh, clean machine** (a runner) and executes these stages in order:
+
+```mermaid
+flowchart TD
+    P[Push or pull request] --> R[GitHub starts a clean runner]
+    R --> C[1. Checkout the code]
+    C --> S[2. Set up the runtime -Python-]
+    S --> I[3. Install dependencies]
+    I --> L[4. Lint -static checks-]
+    I --> T[5. Run tests]
+    L --> G{All green?}
+    T --> G
+    G -->|Yes| OK[Green check -> safe to merge]
+    G -->|No| X[Red X -> merge blocked, dev notified]
+```
+
+**What CI typically checks:**
+
+| Check | What it catches |
+|---|---|
+| **Tests** (unit + integration) | Broken behaviour - the core of CI |
+| **Lint / static analysis** | Bugs, undefined names, risky patterns |
+| **Formatting** | Inconsistent style across the team |
+| **Security scanning** | Known vulnerabilities in dependencies |
+| **Coverage** | New code shipped without tests |
+| **Build / package** | The app does not actually build or containerise |
+
+Two facts that explain almost everything else in this lesson:
+1. **The runner is wiped after the job.** Nothing survives to the next job unless you cache it or save it as an artifact (Sections 6 and 7).
+2. **Jobs run on separate machines, in parallel by default.** You order them with `needs:` when one must wait for another.
+
+---
+
+## 3. The Demo App We Will Use
+
+A tiny **Flask** app - deliberately small so the focus stays on the *pipeline*, not the app. The full runnable version (Dockerfile, k8s manifests, workflows) lives in [`../demo/`](../demo/README.md).
+
+```
+demo/
+├── app/main.py            # the Flask app: GET / and GET /health
+├── tests/test_app.py      # pytest tests (what CI runs)
+├── requirements.txt       # pinned dependencies
+├── .flake8                # lint config
+├── Dockerfile             # packages the app (used by CD, Day 4)
+└── k8s/                   # deployment + service (CD target, Day 4/5)
+```
+
+### `app/main.py`
+
+```python
+import os
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+# Version comes from an env var so a deploy can PROVE a new version shipped.
+APP_VERSION = os.getenv("APP_VERSION", "dev")
+
+@app.route("/")
+def home():
+    return f"<h1>Hello from the CI/CD demo!</h1><p>Version: {APP_VERSION}</p>"
+
+@app.route("/health")
+def health():
+    # Kubernetes probes and the pipeline smoke test both call this.
+    return jsonify(status="ok", version=APP_VERSION)
+```
+
+### `tests/test_app.py`
+
+```python
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
+import main  # noqa: E402
+
+def client():
+    main.app.config["TESTING"] = True
+    return main.app.test_client()
+
+def test_home_returns_200():
+    r = client().get("/")
+    assert r.status_code == 200
+    assert b"Hello from the CI/CD demo" in r.data
+
+def test_health_returns_ok():
+    r = client().get("/health")
+    assert r.status_code == 200
+    assert r.get_json()["status"] == "ok"
+
+def test_unknown_route_returns_404():
+    assert client().get("/nope").status_code == 404
+```
+
+### `requirements.txt` (pinned)
+
+```
+flask==3.0.3
+gunicorn==22.0.0
+pytest==8.2.0
+```
+
+> **Why pin exact versions (`==`)?** So CI installs the **same** dependencies every time. If you wrote `flask>=3` instead, a new Flask release could change behaviour and turn your pipeline red for no code change of yours. Pinning is the Python equivalent of committing a lock file. (In Node the same idea is enforced by `npm ci`, which installs exactly what `package-lock.json` says.)
+
+---
+
+## 4. Running Tests Automatically
+
+The heart of CI: run the tests on **every push and every pull request**, and fail the run if any test breaks.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -218,459 +175,223 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, 'release/**', 'hotfix/**']
+    branches: [main]
   pull_request:
-    branches: [develop, main]   # features → develop, releases/hotfixes → main
+    branches: [main]
+  # (In a GitFlow repo you would also add develop, release/**, etc.)
 
 jobs:
   test:
-    name: Run Tests
+    name: Test
     runs-on: ubuntu-latest
-
     steps:
-      # Step 1: Get the code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Set up the runtime
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
-          cache: 'npm'        # cache node_modules between runs
+          python-version: "3.12"
+          cache: "pip"          # cache pip downloads between runs (Section 6)
 
-      # Step 3: Install dependencies
-      # 'npm ci' is BETTER than 'npm install' for CI:
-      #   - Reads package-lock.json exactly (reproducible)
-      #   - Fails if package-lock.json is out of sync
-      #   - Faster on clean installs
       - name: Install dependencies
-        run: npm ci
+        run: pip install -r requirements.txt
 
-      # Step 4: Run the tests
       - name: Run tests
-        run: npm test
-
-      # Step 5: Upload coverage report as artifact
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        if: always()   # run even if tests fail
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 7
+        run: pytest -v
 ```
 
-### `npm ci` vs `npm install` - Know the Difference
+**Why run on `pull_request` too, not just `push`?** Because you want the gate to fail **before** a merge, while the change is still a PR. Push-only CI tells you it is broken *after* it is already on `main` - too late.
 
-| Feature | `npm install` | `npm ci` |
-|---|---|---|
-| Purpose | Development - add/update packages | CI - exact reproducible install |
-| Reads | `package.json` | `package-lock.json` (exact versions) |
-| `node_modules` | Merges/updates | Deletes and reinstalls fresh |
-| Lock file mismatch | Updates lock file | **FAILS** (alerts you to inconsistency) |
-| Speed on clean install | Slower | Faster |
-| Use in CI | Never | Always |
-
----
-
-### Step `if` Conditions
-
-You can make steps conditional:
+### Making steps conditional with `if`
 
 ```yaml
 steps:
   - name: Run tests
-    run: npm test
+    run: pytest -v
 
-  # This step runs even if tests fail (useful for uploading failure reports)
-  - name: Upload test results
+  - name: Upload results even on failure
     uses: actions/upload-artifact@v4
-    if: always()          # always run this step
+    if: always()                       # run this step regardless of test result
 
-  # Only run on main branch
-  - name: Deploy
-    if: github.ref == 'refs/heads/main'
-    run: ./deploy.sh
-
-  # Only run if previous step failed
-  - name: Notify on failure
+  - name: Notify only when something failed
     if: failure()
     run: echo "Tests failed!"
 
-  # Only run if all previous steps succeeded
-  - name: Post success
-    if: success()
-    run: echo "All good!"
+  - name: Deploy only from main
+    if: github.ref == 'refs/heads/main'
+    run: ./deploy.sh
 ```
 
-### Step Outputs
+`always()`, `failure()`, `success()` and expressions like `github.ref == '...'` let a step decide whether to run. `if: always()` on an upload step is the classic way to still collect logs/reports when tests fail.
 
-Steps can produce outputs that later steps can use:
+### Passing a value to a later step (step outputs)
 
 ```yaml
 steps:
-  - name: Get version
-    id: version          # give the step an ID to reference later
-    # Read the version straight from package.json (node is already set up).
-    # jq -r .version package.json also works if you prefer.
-    run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+  - name: Read the app version
+    id: ver
+    run: echo "version=$(python -c 'import app.main as m; print(m.APP_VERSION)')" >> "$GITHUB_OUTPUT"
 
-  - name: Use version
-    run: echo "Building version ${{ steps.version.outputs.version }}"
+  - name: Use it
+    run: echo "Testing version ${{ steps.ver.outputs.version }}"
 ```
+
+Write `key=value` to the `$GITHUB_OUTPUT` file, give the step an `id`, and later steps read `${{ steps.<id>.outputs.<key> }}`.
 
 ---
 
-## 4. Linting & Code Quality
+## 5. Linting and Code Quality
 
-### What is Linting?
+A **linter** reads your code (without running it) and flags real errors (undefined names, unreachable code) and style problems (unused imports, bad formatting). Running it in CI means these are caught automatically - no more review comments like "you left a debug print in."
 
-A **linter** is a tool that analyzes source code to flag:
-- Programming errors (using undefined variables)
-- Bugs (unreachable code)
-- Style violations (inconsistent quotes, missing semicolons)
-- Suspicious patterns (unused variables, overly complex expressions)
+### Flake8 (Python)
 
-Linting in CI means these issues are caught automatically before code is merged - no more review comments like "please remove that console.log".
+The demo ships a `.flake8` config:
 
-### ESLint (JavaScript/TypeScript)
-
-**`.eslintrc.json`:**
-```json
-{
-  "env": {
-    "node": true,
-    "es2021": true,
-    "jest": true
-  },
-  "extends": ["eslint:recommended"],
-  "rules": {
-    "no-unused-vars": "error",
-    "no-console": "warn",
-    "eqeqeq": "error",
-    "no-var": "error",
-    "prefer-const": "error"
-  }
-}
+```ini
+[flake8]
+max-line-length = 120
+extend-ignore = E501
+exclude = venv,.venv,__pycache__
 ```
 
-**Adding lint to CI:**
+Add it as its own job so lint failures are reported separately from test failures:
+
 ```yaml
   lint:
     name: Lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - name: Run ESLint
-        run: npm run lint
-```
-
-### Prettier (Code Formatting)
-
-Prettier enforces a consistent code style automatically. In CI, you check that code *was* formatted - you don't format it (that would change files and break the workflow).
-
-```yaml
-      - name: Check formatting
-        run: npx prettier --check "src/**/*.js"
-        # Use --check in CI (exits with error if files need formatting)
-        # Use --write locally to actually format
-```
-
-### Python Linting
-
-**Flake8:**
-```yaml
-  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.12"
       - run: pip install flake8
-      - name: Run Flake8
-        run: flake8 . --count --max-line-length=88 --statistics
+      - name: Run flake8
+        run: flake8 app tests
 ```
 
-**Black (formatter check):**
+> A pragmatic pattern (used in the demo) is to **fail only on real errors** and treat pure style as warnings, so a stray blank line does not block a merge:
+> `flake8 app --select=E9,F63,F7,F82 --show-source --statistics` (E9/F-codes are syntax and undefined-name errors).
+
+### Black (formatting check)
+
+`black` auto-formats Python. In CI you **check** that code was formatted (you do not reformat - that would change files mid-run):
+
 ```yaml
-      - name: Check Black formatting
+      - run: pip install black
+      - name: Check formatting
+        run: black --check .        # exits non-zero if anything is unformatted
+```
+
+### Security scanning
+
+```yaml
+      - name: Audit dependencies for known CVEs
         run: |
-          pip install black
-          black --check .
+          pip install pip-audit
+          pip-audit -r requirements.txt
 ```
 
-### Security Scanning
-
-**Dependency vulnerability scanning:**
-```yaml
-      - name: Audit dependencies
-        run: npm audit --audit-level=high
-        # Fails if any HIGH or CRITICAL vulnerabilities found
-```
-
-**GitHub's built-in CodeQL (advanced):**
-```yaml
-  security:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-```
+> Other languages, same idea: **ESLint/Prettier** for JavaScript, `golangci-lint` for Go, `npm audit` for Node dependencies. The *job* is identical - only the tool changes.
 
 ---
 
-## 5. Matrix Builds
+## 6. Making CI Fast and Reliable
 
-### What is a Matrix Build?
+Two levers make CI both quick and trustworthy: run across versions in **parallel** (matrix), and avoid re-downloading dependencies every time (**caching**).
 
-A **matrix build** lets you run the same job with different configurations in parallel. This is how you test that your code works on:
-- Multiple Node.js versions (e.g. 18, 20, 22 - use current/LTS versions, not end-of-life ones)
-- Multiple operating systems (Ubuntu, Windows, macOS)
-- Multiple Python versions
-- Multiple database versions
+### Matrix builds - test several versions at once
 
-Instead of writing three separate jobs, you define the matrix and GitHub runs them all in parallel.
-
-### Basic Matrix
+A **matrix** runs the same job with different configurations, all in parallel - so you prove the app works on every version you support, without writing separate jobs.
 
 ```yaml
 jobs:
   test:
-    name: Test on Node ${{ matrix.node-version }}
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false                 # see ALL failures, not just the first
+      matrix:
+        python-version: ["3.11", "3.12"]   # two jobs, run in parallel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - run: pytest -v
+```
 
+Multi-dimensional (versions x operating systems):
+
+```yaml
     strategy:
       matrix:
-        node-version: [18, 20, 22]
-        # This creates 3 jobs:
-        #   test (node-version: 18)
-        #   test (node-version: 20)
-        #   test (node-version: 22)
-        # All run in parallel!
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}   # use the matrix value
-      - run: npm ci
-      - run: npm test
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]   # 2 x 2 = 4 parallel jobs
+    runs-on: ${{ matrix.os }}
 ```
 
-### Multi-Dimensional Matrix
+- **`fail-fast: false`** - by default, the moment one matrix job fails GitHub cancels the rest and you only see the first failure. Set it `false` to let every combination finish so you see the full picture.
+- **`exclude:` / `include:`** - drop a specific combination, or add an extra one with special settings.
 
-```yaml
-strategy:
-  matrix:
-    os: [ubuntu-latest, windows-latest, macos-latest]
-    node-version: [18, 20]
-    # Creates 3 × 2 = 6 jobs running in parallel
+### Caching dependencies
 
-jobs:
-  test:
-    runs-on: ${{ matrix.os }}   # use matrix value for runner too
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-      - run: npm ci
-      - run: npm test
-```
+Installing packages on every run wastes minutes. **Caching** stores them between runs, keyed by your dependency file - if `requirements.txt` changes, the cache is rebuilt; otherwise it is restored in seconds.
 
-### Excluding Combinations
+> **Analogy:** caching is prepped ingredients in the fridge instead of shopping from scratch before every meal. As long as the shopping list (the lock/requirements file) has not changed, you grab what is already chopped.
 
-```yaml
-strategy:
-  matrix:
-    os: [ubuntu-latest, windows-latest, macos-latest]
-    node-version: [18, 20]
-    exclude:
-      # Don't test Node 18 on macOS (saves cost, rarely needed)
-      - os: macos-latest
-        node-version: 18
-```
-
-### Including Extra Combinations
-
-```yaml
-strategy:
-  matrix:
-    os: [ubuntu-latest]
-    node-version: [18, 20]
-    include:
-      # Add a special extra job with additional config
-      - os: ubuntu-latest
-        node-version: 20
-        experimental: true   # custom variable for this combination only
-```
-
-### fail-fast
-
-```yaml
-strategy:
-  fail-fast: false   # default is true
-  matrix:
-    node-version: [18, 20, 22]
-
-# fail-fast: true (default) - if one matrix job fails, cancel all others
-# fail-fast: false - let all matrix jobs run regardless of failures
-# Use false when you want to see ALL failures across versions
-```
-
----
-
-## 6. Caching Dependencies
-
-### Why Cache?
-
-Installing dependencies (npm install, pip install) takes time. If you have 500 packages, installing them on every CI run wastes minutes.
-
-**Caching stores the installed packages between runs.** The cache key is based on the lock file - if `package-lock.json` changes, the cache is invalidated and packages are reinstalled fresh.
-
-Caching is like keeping prepped ingredients in the fridge instead of shopping from scratch before every single meal. As long as your shopping list (the lock file) has not changed, you just grab what is already chopped and ready. The moment the list changes, you go shopping again and refill the fridge.
-
-### How Caching Works
-
-```mermaid
-flowchart TD
-    A[First run: npm ci installs packages] --> B[Cache saved, keyed by lock file hash]
-    C[Second run: lock file unchanged] --> D[Cache hit, packages restored in seconds]
-    E[Third run: package added, lock file changed] --> F[Cache miss, npm ci runs, cache saved]
-```
-
-### Node.js Cache (Built-in)
-
-`actions/setup-node` has built-in caching:
-
-```yaml
-- uses: actions/setup-node@v4
-  with:
-    node-version: '20'
-    cache: 'npm'         # or 'yarn' or 'pnpm'
-    # Automatically caches node_modules based on package-lock.json hash
-```
-
-### Manual Cache (More Control)
-
-Cache the package manager's **download cache** (`~/.npm`), NOT `node_modules` itself, and **always run `npm ci`**. Caching `node_modules` directly is a common anti-pattern: it can hold platform-specific binaries that break on a different runner, and skipping `npm ci` on a cache hit bypasses the integrity checks that make `npm ci` reliable.
-
-```yaml
-- name: Cache npm downloads
-  uses: actions/cache@v4
-  with:
-    path: ~/.npm                 # the npm DOWNLOAD cache (not node_modules)
-    key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-    # If package-lock.json changes, the hash changes -> new key -> cache miss (correct).
-    restore-keys: |
-      ${{ runner.os }}-npm-      # fallback: reuse an older cache to speed the install
-
-- name: Install dependencies
-  run: npm ci                    # ALWAYS run - it is fast on a warm cache AND verifies integrity
-```
-
-> `actions/setup-node` with `cache: 'npm'` (shown above) already does exactly this for you. Reach for the manual `actions/cache` only for something `setup-node` does not cover (a build output directory, a non-standard tool, etc.).
-
-### Python Cache
+The built-in cache (simplest - what the demo uses):
 
 ```yaml
 - uses: actions/setup-python@v5
   with:
-    python-version: '3.11'
-    cache: 'pip'         # built-in pip cache
-
-# Or manual:
-- uses: actions/cache@v4
-  with:
-    path: ~/.cache/pip
-    key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-- run: pip install -r requirements.txt
+    python-version: "3.12"
+    cache: "pip"           # caches the pip download cache, keyed by requirements files
 ```
 
-### Cache Size Limits
+Manual cache, for full control (cache the **download cache**, never the installed env, and **always run the install** so integrity is verified):
 
-- GitHub caches are limited to **10 GB per repository**
-- Caches unused for **7 days** are deleted automatically
-- Each runner OS has its own separate cache
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.cache/pip                                          # pip's DOWNLOAD cache
+    key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+    restore-keys: ${{ runner.os }}-pip-                         # fallback to an older cache
+- run: pip install -r requirements.txt                          # always run - fast on a warm cache
+```
+
+> Caches are ~10 GB per repo, evicted after 7 days unused, and separate per runner OS.
 
 ---
 
 ## 7. Build Artifacts
 
-### What is an Artifact?
+An **artifact** is a file or folder a job produces that you want to keep or hand to another job.
 
-An **artifact** is a file or directory produced by a workflow that you want to save and share. An artifact is like a lunchbox handed from one worker to the next: the build job packs up the finished meal, and a later job opens the same lunchbox instead of cooking everything again. This matters because each job runs on its own fresh runner, so files do not travel between jobs unless you pack them into an artifact. Examples:
-- Test coverage reports
-- Compiled binaries
-- Docker images
-- Log files
-- Build output (`dist/` folder)
+> **Analogy:** an artifact is a lunchbox passed from one worker to the next - the build job packs the finished meal, a later job opens the same box instead of cooking again. This matters because **each job runs on its own fresh runner**, so files do not travel between jobs unless you pack them into an artifact.
 
-### Uploading Artifacts
+Common artifacts: a **coverage report**, a built package, log files, or a **Docker image** (the big one - it is the artifact CD deploys).
 
 ```yaml
-- name: Build application
-  run: npm run build    # produces dist/ folder
+      - name: Run tests with coverage
+        run: |
+          pip install pytest-cov
+          pytest --cov=app --cov-report=html      # produces htmlcov/
 
-- name: Upload build output
-  uses: actions/upload-artifact@v4
-  with:
-    name: build-output          # artifact name (shows in GitHub UI)
-    path: dist/                 # path to upload
-    retention-days: 30          # how long to keep it (default: 90)
-    if-no-files-found: error    # fail if nothing was produced
-```
-
-**Upload multiple paths:**
-```yaml
-- uses: actions/upload-artifact@v4
-  with:
-    name: test-results
-    path: |
-      coverage/
-      test-results.xml
-      *.log
-```
-
-### Downloading Artifacts
-
-In a later job (or a different workflow):
-
-```yaml
-  deploy:
-    needs: build     # ensure build job ran first
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()                              # keep the report even if tests fail
         with:
-          name: build-output    # must match the upload name
-          path: ./dist          # where to put the downloaded files
-
-      - name: Deploy
-        run: ./deploy.sh dist/
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 7                        # auto-delete after a week
 ```
 
-### Passing Data Between Jobs
-
-Jobs run on separate machines, so you can't just share files. Use artifacts:
+**Passing data between jobs** (upload in one, download in the next):
 
 ```yaml
 jobs:
@@ -678,158 +399,185 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci && npm run build
+      - run: python -m build           # produces dist/
       - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+        with: { name: dist, path: dist/ }
 
-  test-e2e:
-    needs: build
+  test-package:
+    needs: build                        # wait for build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - run: npm run test:e2e   # tests against the built app
+        with: { name: dist, path: dist/ }
+      - run: echo "test the built package in dist/"
 ```
 
 ---
 
-## 8. Status Checks & Branch Protection
+## 8. The Quality Gate: Status Checks and Branch Protection
 
-### What are Status Checks?
+CI is only useful if a **red pipeline actually stops bad code from merging**. That is what branch protection does - it turns your CI jobs into required gates.
 
-Every CI job reports a status to GitHub:
-- Green checkmark = passed
-- Red X = failed
-- Yellow circle = in progress
+Every CI job reports a status to GitHub: **green check** (passed), **red X** (failed), **yellow** (running). Those show up on the PR, the commit, and the branch.
 
-These statuses appear on:
-- Pull Request pages
-- Commit history
-- The branch itself
+**Branch protection** blocks the Merge button until conditions are met:
 
-### Branch Protection Rules
+1. Repo -> **Settings** -> **Branches** -> **Add branch protection rule**
+2. Branch name pattern: `main`
+3. Check **"Require status checks to pass before merging"**
+4. Search for and add your CI job names (e.g. `Test`, `Lint`)
+5. Check **"Require branches to be up to date before merging"**
+6. Optionally **"Include administrators"** so the rule applies to everyone
 
-**Branch protection** prevents code from being merged unless certain conditions are met. This enforces your CI gates.
-
-**To set up (GitHub UI):**
-1. Repo, then Settings, then Branches
-2. Click "Add branch protection rule"
-3. Branch name pattern: `main`
-4. Check: "Require status checks to pass before merging"
-5. Search and add your CI job names
-6. Check: "Require branches to be up to date before merging"
-7. Check: "Include administrators" (optional but recommended)
-
-**Result:** GitHub will block the "Merge" button until all required CI checks pass.
-
-### Reporting Custom Status Checks
-
-```yaml
-# You can also create custom status checks via the API
-- name: Report custom status
-  uses: actions/github-script@v7
-  with:
-    script: |
-      await github.rest.repos.createCommitStatus({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
-        sha: context.sha,
-        state: 'success',      // 'error', 'failure', 'pending', 'success'
-        description: 'All checks passed',
-        context: 'my-custom-check'
-      })
-```
+**Result:** a PR with a red CI check cannot be merged. This is the moment CI stops being a suggestion and becomes a gate. You will see this live in [Section 10](#10-ci-demo---watch-it-work).
 
 ---
 
-## 9. Reusable Workflows and Composite Actions (Stop Repeating Yourself)
+## 9. Stop Repeating Yourself: Reusable Workflows and Composite Actions
 
-Notice how every job starts the same way: `checkout`, `setup-node`, `npm ci`. Copying that into your lint, test, and build jobs is exactly the duplication CI/CD is supposed to remove. Two tools fix it.
+Notice how every job starts the same way: `checkout`, `setup-python`, `pip install`. Copying that into your lint, test, and build jobs is exactly the duplication CI/CD is meant to remove. Two tools fix it.
 
 ### Composite actions - bundle repeated STEPS
 
-A composite action packages a sequence of steps into **one reusable step**. Put it in your repo at `.github/actions/setup/action.yml`:
+Package a sequence of steps into **one reusable step** at `.github/actions/setup/action.yml`:
 
 ```yaml
 # .github/actions/setup/action.yml
 name: Setup
-description: Checkout, install Node, and restore dependencies
+description: Checkout, set up Python, install deps
 runs:
   using: composite
   steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-python@v5
       with:
-        node-version: "20"
-        cache: "npm"
-    - run: npm ci
+        python-version: "3.12"
+        cache: "pip"
+    - run: pip install -r requirements.txt
       shell: bash          # composite 'run' steps MUST declare a shell
 ```
 
-Every job then collapses to a single line:
+Every job then collapses to:
 
 ```yaml
-jobs:
-  test:
-    runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/setup    # the whole checkout + node + install
-      - run: npm test
+      - uses: ./.github/actions/setup    # the whole checkout + python + install
+      - run: pytest -v
 ```
 
 ### Reusable workflows - share a whole JOB across workflows or repos
 
-A reusable workflow is a full workflow other workflows can **call** with `on: workflow_call`:
+A full workflow other workflows can **call** with `on: workflow_call`:
 
 ```yaml
 # .github/workflows/ci.yml  (the reusable one)
 on:
   workflow_call:
     inputs:
-      node-version:
-        type: string
-        default: "20"
+      python-version: { type: string, default: "3.12" }
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: ${{ inputs.node-version }}
-          cache: "npm"
-      - run: npm ci && npm test
+          python-version: ${{ inputs.python-version }}
+          cache: "pip"
+      - run: pip install -r requirements.txt && pytest
 ```
 
 ```yaml
-# any other workflow calls it (even from another repo, pinned to a tag)
+# another workflow calls it (even from another repo, pinned to a tag)
 jobs:
   call-ci:
     uses: ./.github/workflows/ci.yml     # or my-org/shared/.github/workflows/ci.yml@v1
-    with:
-      node-version: "22"
+    with: { python-version: "3.11" }
 ```
 
-> **Which one?** A **composite action** bundles **steps** and runs inside an existing job - perfect for a repeated step sequence. A **reusable workflow** bundles **whole jobs** (its own runners) and is meant to standardise entire pipelines across many repositories.
+> **Which one?** A **composite action** bundles **steps** (runs inside an existing job) - great for a repeated step sequence. A **reusable workflow** bundles **whole jobs** (its own runners) - meant to standardise entire pipelines across many repos.
 
 ---
 
-## Lab - Full CI Pipeline
+## 10. CI Demo - Watch It Work
+
+Concepts click when you *see* CI block a broken change. This uses the Flask app in [`../demo/`](../demo/README.md).
+
+> **Key detail:** GitHub only runs workflows that live at the **repository root** under `.github/workflows/`. The demo keeps them in `demo/.github/workflows/` for reading, so to run them you copy the demo contents to a repo root.
+
+### Step 1 - Put the demo in a GitHub repo
+
+```bash
+# In a new, empty GitHub repo cloned locally:
+cp -r path/to/demo/* path/to/demo/.github .     # copy app, tests, requirements, AND .github
+git add .
+git commit -m "Add CI demo app"
+git push origin main
+```
+
+Your repo root now has `app/`, `tests/`, `requirements.txt`, and `.github/workflows/ci.yml`.
+
+### Step 2 - Watch CI pass
+
+Open the repo's **Actions** tab. The **CI** workflow is already running:
+
+```mermaid
+flowchart LR
+    Push["git push"] --> Job["CI job: checkout -> setup-python -> pip install -> flake8 -> pytest"]
+    Job -->|all pass| Green["Green check on the commit"]
+```
+
+You will see the steps stream live, then a green check. Congratulations - that is CI.
+
+### Step 3 - Break a test on purpose (the important part)
+
+Change the app so a test fails - e.g. in `app/main.py` make `/health` return the wrong status:
+
+```python
+@app.route("/health")
+def health():
+    return jsonify(status="broken", version=APP_VERSION)   # test expects "ok"
+```
+
+Commit and push (ideally on a branch, as a PR):
+
+```bash
+git checkout -b break-it
+git commit -am "Break the health check"
+git push origin break-it        # then open a Pull Request on GitHub
+```
+
+Watch the **CI go red**: `test_health_returns_ok` fails, and the PR shows a red X with the exact failure. **This is CI doing its job** - catching the break before it reaches `main`.
+
+### Step 4 - Make the gate real with branch protection
+
+Turn on branch protection for `main` (Section 8) and require the **Test** check. Now the red PR shows **"Merging is blocked"** - the button is disabled. Broken code physically cannot merge.
+
+### Step 5 - Fix it and go green
+
+Revert the change (`status="ok"`), push again, watch CI turn green, and the Merge button unlocks.
+
+```mermaid
+flowchart LR
+    Bad["Push broken code"] --> Red["CI red -> PR blocked"]
+    Red --> Fix["Push the fix"]
+    Fix --> GreenM["CI green -> merge allowed"]
+```
+
+**What you just proved:** CI + branch protection means the only code that reaches `main` is code that built and passed its tests. That guarantee is the entire point of Continuous Integration.
+
+---
+
+## Lab - Build the Full CI Pipeline
 
 ### Objective
 
-Build a complete CI pipeline for the sample app that:
-1. Runs on every PR and push to `main`
-2. Tests on Node 18 and 20
-3. Lints the code
-4. Checks formatting
-5. Reports code coverage
-6. Saves the coverage report as an artifact
+Extend the demo's CI into a complete pipeline that:
+1. Runs on every push and PR to `main`.
+2. **Lints** the code (its own job).
+3. **Tests** across Python 3.11 and 3.12 (matrix).
+4. **Builds the Docker image** (proving it packages) - only if lint and tests pass.
+5. Uploads a coverage report as an artifact.
 
 ### The Complete Workflow
 
@@ -839,178 +587,118 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, 'release/**', 'hotfix/**']
+    branches: [main]
   pull_request:
-    branches: [develop, main]   # features → develop, releases/hotfixes → main
-
-env:
-  NODE_VERSION_MATRIX: '[18, 20]'
+    branches: [main]
 
 jobs:
-  # ─── JOB 1: Lint ────────────────────────────────────────────────
+  # --- Job 1: Lint ---
   lint:
-    name: Lint & Format Check
+    name: Lint
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: "pip" }
+      - run: pip install flake8
+      - run: flake8 app tests
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Check Prettier formatting
-        run: npx prettier --check "src/**/*.js" "tests/**/*.js"
-
-  # ─── JOB 2: Test (Matrix) ───────────────────────────────────────
+  # --- Job 2: Test (matrix) ---
   test:
-    name: Test (Node ${{ matrix.node-version }})
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20]
-
+        python-version: ["3.11", "3.12"]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests with coverage
-        run: npm test -- --coverage --coverageReporters=text --coverageReporters=lcov
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        if: matrix.node-version == 20   # only upload once
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+      - run: pip install -r requirements.txt pytest-cov
+      - run: pytest --cov=app --cov-report=html -v
+      - uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.12'    # upload once, not per matrix job
         with:
-          name: coverage-node-${{ matrix.node-version }}
-          path: coverage/
+          name: coverage-report
+          path: htmlcov/
           retention-days: 7
 
-  # ─── JOB 3: Build ───────────────────────────────────────────────
+  # --- Job 3: Build the image (only if lint + test pass) ---
   build:
-    name: Build
+    name: Build image
     runs-on: ubuntu-latest
-    needs: [lint, test]     # only build if lint and tests pass
-
+    needs: [lint, test]                        # gate: wait for green
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build application
-        run: npm run build
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: dist/
-          if-no-files-found: warn
-          retention-days: 7
+      - uses: actions/checkout@v4
+      - name: Build (does it containerise?)
+        run: docker build -t cicd-demo:${{ github.sha }} .
+        # Note: this only BUILDS. Pushing + deploying is CD (Day 4).
 ```
 
-### Running It
+### Run it
 
-1. Copy the workflow to `.github/workflows/ci.yml`
-2. Copy the sample app to `02-ci/app/`
-3. Push to a new branch
-4. Open a PR
-5. Watch the CI run - you'll see 4 jobs: lint, test (Node 18), test (Node 20), build
+Copy this to `.github/workflows/ci.yml` in your demo repo, push, and open the Actions tab. You will see four jobs: `lint`, `test (3.11)`, `test (3.12)`, and `build` - with `build` waiting for the first three.
 
 ### Challenge
 
-Extend the pipeline to:
-1. Add a security audit step (`npm audit`)
-2. Add a step that posts a comment on the PR with the test coverage percentage
-3. Run tests on `ubuntu-latest` AND `windows-latest`
-
-### Coverage PR Comment Solution
-
-```yaml
-      - name: Get coverage summary
-        id: coverage
-        run: |
-          COVERAGE=$(npx jest --coverage --coverageReporters=text-summary 2>&1 | grep "Statements" | awk '{print $3}')
-          echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
-
-      - name: Comment on PR
-        uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `## Test Coverage Report\n\nCoverage: **${{ steps.coverage.outputs.percentage }}**`
-            })
-```
+1. Add a `pip-audit` security step to the lint job.
+2. Add `windows-latest` to the test matrix.
+3. Post the coverage percentage as a PR comment (hint: `actions/github-script@v7` + read `htmlcov`/a coverage summary).
 
 ---
 
 ## Common Mistakes
 
-These are the pitfalls that catch almost every beginner. Knowing them in advance saves hours of confusion.
-
-- Using `npm install` instead of `npm ci` in CI. `npm install` can quietly change your lock file and pull slightly different versions, so the pipeline tests something different from what you committed. `npm ci` installs the exact versions from `package-lock.json` and fails loudly if they do not match.
-- Not pinning action versions. Writing `uses: actions/checkout` with no version, or trusting a moving tag, means a future update to that action can break your pipeline overnight. Pin to a major version like `actions/checkout@v4`, or a full commit SHA for stricter security.
-- Forgetting `fail-fast: false` in a matrix. By default, the moment one combination fails, GitHub cancels the rest. You then see only the first failure and have to guess about the others. Setting `fail-fast: false` lets every combination finish so you see the full picture.
-- Hardcoding secrets in the workflow file. Anyone who can read the repository can read the file, and the value lives forever in Git history. Store tokens and keys in GitHub Secrets and read them with `${{ secrets.MY_TOKEN }}`.
-- Expecting files to persist between jobs. Each job runs on a fresh runner, so a file created in one job is gone in the next. To pass a build result along, upload it as an artifact in one job and download it in the next.
-- Running the full pipeline on docs-only changes. Editing a single README should not spin up a 10 minute build. Use a `paths` or `paths-ignore` filter on your triggers so the heavy jobs run only when real code changes.
+- **Not pinning dependencies.** `flask>=3` lets a new release change behaviour and turn CI red with no code change of yours. Pin exact versions (`flask==3.0.3`) so every run installs the same thing.
+- **Not pinning action versions.** `uses: actions/checkout` with no version means a future update can break your pipeline overnight. Pin `@v4` (or a full commit SHA for stricter security).
+- **Push-only CI.** Running only on `push` tells you it broke *after* it is on `main`. Add `pull_request` so the gate fails while it is still a PR.
+- **Forgetting `fail-fast: false` in a matrix.** The default cancels the other combinations at the first failure, hiding the rest. Set it `false` to see every failure.
+- **Expecting files to persist between jobs.** Each job is a fresh runner - a file made in one job is gone in the next. Upload it as an artifact and download it.
+- **CI with no branch protection.** A red pipeline that still lets you merge is just a decoration. Require the checks so red actually blocks the merge.
+- **Running the full pipeline on docs-only changes.** Editing a README should not trigger a 10-minute build. Use `paths`/`paths-ignore` filters on your triggers.
 
 ---
 
 ## Quick Self-Check
 
-Test yourself before moving on. If you can answer these in your own words, you are ready.
-
 1. In one sentence, what question does a CI pipeline answer every time code is pushed?
-2. What is the difference between `npm install` and `npm ci`, and which belongs in CI?
-3. You need to test your app on Node 18, 20, and 22 in one workflow. Which feature do you use, and what does `fail-fast: false` change about the result?
-4. Why does caching speed up a pipeline, and what causes a cache to be rebuilt?
-5. A build job produces a `dist/` folder that a later deploy job needs. Why can the deploy job not just read the file directly, and what do you use instead?
+2. Is CI only tests? Where does CI end, and what takes over from there?
+3. You must test on Python 3.11, 3.12 and 3.13 in one workflow. Which feature, and what does `fail-fast: false` change?
+4. Why does caching speed up a pipeline, and what causes the cache to be rebuilt?
+5. A build job produces a file a later job needs. Why can the later job not just read it, and what do you use instead?
+6. You have green CI but a broken change still got merged. What did the repo forget to turn on?
+
+<details>
+<summary>Answers</summary>
+
+1. "Is this change safe to merge?" - it verifies every integration automatically.
+2. No - CI is build + test + lint + package. It ends at a **tested, packaged artifact**; **CD** takes that artifact and deploys it.
+3. A **matrix** (`matrix: python-version: ["3.11","3.12","3.13"]`). `fail-fast: false` lets all versions finish so you see every failure, not just the first.
+4. Caching restores already-downloaded dependencies instead of fetching them again; the cache is rebuilt when its key changes - i.e. when `requirements.txt` (the `hashFiles` input) changes.
+5. Jobs run on separate fresh runners, so files do not travel between them. Upload the file as an **artifact** in one job and download it in the next.
+6. **Branch protection** requiring the CI status checks - without it, a red pipeline does not block the merge.
+
+</details>
 
 ---
 
 ## Summary
 
-| Concept | Key Point |
+| Concept | Key point |
 |---|---|
-| `npm ci` | Always use in CI - reproducible, strict |
-| Lint | Catches bugs and style issues automatically |
-| Matrix | Test multiple versions/platforms in parallel |
-| `fail-fast: false` | See all matrix failures, not just the first |
-| Cache | `hashFiles(lock-file)` as the cache key |
-| Artifacts | Share files between jobs or save for later |
-| Branch protection | Enforce CI gates on PRs |
+| What CI is | Integrate often + auto-verify; the pipeline builds, tests, lints, and **packages** an artifact |
+| Pinned deps | Exact versions = reproducible CI (Python's answer to a lock file / `npm ci`) |
+| Tests | The core gate; run on push **and** pull_request |
+| Lint | Catches bugs and style automatically (flake8/black; ESLint for JS) |
+| Matrix | Test multiple versions/OSes in parallel; `fail-fast: false` to see all failures |
+| Cache | Keyed by the dependency file - restores deps in seconds |
+| Artifacts | The only way to move files between jobs (each runner is wiped) |
+| Branch protection | Turns CI into a real gate - red blocks the merge |
+
+You built a CI pipeline for a real app and watched it block a broken change. Next, we make that pipeline handle **secrets** safely.
 
 ---
 
