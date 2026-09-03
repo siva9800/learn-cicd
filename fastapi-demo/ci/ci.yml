@@ -16,6 +16,7 @@ on:
   pull_request:
     paths:
       - "fastapi-demo/**"
+  workflow_dispatch:          # lets you run it manually (Actions tab "Run workflow", or gh CLI)
 
 defaults:
   run:
