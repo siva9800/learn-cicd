@@ -11,6 +11,10 @@ By the end of this module you will be able to:
 - Define environments such as staging and production and protect them with approval gates and wait timers
 - Use OIDC to authenticate to AWS, Azure, and GCP without storing long-lived credentials
 - Apply the principle of least privilege to the built-in GITHUB_TOKEN
+- Write the real AWS trust and permission policies a pipeline needs, and say why a build role
+  and an infrastructure role must be separate
+- Give a deployed workload its own cloud identity with EKS Pod Identity, instead of putting an
+  access key in a Kubernetes Secret
 - Recognise and avoid the most common security mistakes in CI/CD pipelines
 
 ## Table of Contents
@@ -20,10 +24,11 @@ By the end of this module you will be able to:
 3. [Environments](#3-environments)
 4. [Approval Gates](#4-approval-gates)
 5. [Environment-Specific Secrets](#5-environment-specific-secrets)
-6. [OIDC - Keyless Authentication](#6-oidc--keyless-authentication)
+6. [OIDC - Keyless Authentication](#6-oidc---keyless-authentication)
 7. [Permissions & Least Privilege](#7-permissions--least-privilege)
 8. [Security Best Practices](#8-security-best-practices)
-9. [Lab - Deploy with Secrets and Approval Gate](#lab--deploy-with-secrets-and-approval-gate)
+9. [AWS IAM in Practice](#9-aws-iam-in-practice)
+10. [Lab - Deploy with Secrets and Approval Gate](#lab---deploy-with-secrets-and-approval-gate)
 
 ---
 
@@ -398,6 +403,11 @@ jobs:
         run: aws s3 sync dist/ s3://my-bucket/
 ```
 
+> One role and one trust policy is where you start, not where you finish. A real project
+> needs several identities, and the trust policy above has a trap in it that costs people an
+> afternoon. [Section 9](#9-aws-iam-in-practice) takes this
+> from the toy example to the real thing.
+
 ### Azure OIDC Setup
 
 ```yaml
@@ -571,6 +581,274 @@ jobs:
 
 ---
 
+## 9. AWS IAM in Practice
+
+Section 6 showed the OIDC handshake with one role and one trust policy. That is the right
+place to start and it is not what a real project looks like. This section takes it the rest
+of the way, using the end-to-end project from Day 5 as the worked example.
+
+A pipeline that builds an application and manages its infrastructure needs **more than one
+identity**, and the workloads it deploys need identities of their own. Five, in the project
+we build:
+
+| Identity | Who uses it | Created by | How it authenticates |
+|---|---|---|---|
+| the infra role | the Terraform pipeline | you, by hand, once | GitHub OIDC |
+| the build role | the application CI pipeline | Terraform | GitHub OIDC |
+| the app role | the application pod | Terraform | EKS Pod Identity |
+| the controller role | the load balancer controller pod | Terraform | EKS Pod Identity |
+| the storage driver role | the EBS CSI driver pod | Terraform | EKS Pod Identity |
+
+Two ideas run through all of it. **Nothing holds a long-lived access key**, which is the
+point of Section 6, extended to the workloads and not just the pipeline. And **the order
+matters**, because one role has to exist before the automation that creates the others can
+run at all.
+
+### Why two pipeline roles, not one
+
+This is the single most useful habit in this section, and it costs nothing to adopt.
+
+Building a container image and destroying a VPC are wildly different levels of trust. If
+one role does both, then every routine application build, on every branch, runs with the
+power to delete your entire environment.
+
+So there are two:
+
+- **The infra role** is assumed only by the Terraform workflow. It has broad permissions
+  because it genuinely creates networks, clusters and IAM roles.
+- **The build role** is assumed by the application workflow. It can push container images
+  to two specific repositories and do nothing else at all.
+
+Keeping the workflows separate is what makes the two trust levels possible. Combine the
+workflows and you are forced to give the combined role the union of both permission sets.
+
+### The chicken and egg problem
+
+Terraform creates the build role and the three workload roles. But Terraform needs somewhere
+to store its state, and the workflow needs permission to run Terraform. Neither can be
+created by the thing that needs them.
+
+So exactly three things are created **once, by hand, with admin credentials**. This is
+called the bootstrap, or stage zero:
+
+1. An S3 bucket for Terraform state, versioned, encrypted and private.
+2. The GitHub OIDC identity provider.
+3. The infra role that the pipeline assumes.
+
+Everything else is created by Terraform through the pipeline. Students often try to
+automate the bootstrap too and get stuck in a loop; the answer is that a small, documented,
+one-time manual step is correct here.
+
+### The trust policy trap that wastes an afternoon
+
+Section 6 gave the documented subject form:
+
+```
+repo:myorg/myrepo:ref:refs/heads/main
+```
+
+Some GitHub accounts emit an **immutable id** form instead:
+
+```
+repo:myorg@12345/myrepo@67890:ref:refs/heads/main
+```
+
+A trust policy matching `repo:myorg/myrepo:*` does not match the second form. The failure is
+maddening, because every name in your pattern is spelled correctly and the error says
+nothing about why:
+
+```
+Not authorized to perform sts:AssumeRoleWithWebIdentity
+```
+
+Write the pattern so it matches both forms:
+
+```json
+"StringLike": {
+  "token.actions.githubusercontent.com:sub": "repo:OWNER@*/REPO@*:*"
+}
+```
+
+If you want to see the subject your account actually sends rather than guessing, the failed
+call is recorded in **AWS CloudTrail**. Open Event history, filter on the
+`AssumeRoleWithWebIdentity` event name, and read the subject from the request parameters.
+
+Never solve this by removing the subject condition. Without it, any repository on GitHub can
+assume your role.
+
+### What the build role may actually do
+
+This is a complete, real permission policy. It is short on purpose.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": [
+        "arn:aws:ecr:REGION:ACCOUNT:repository/myapp-backend",
+        "arn:aws:ecr:REGION:ACCOUNT:repository/myapp-frontend"
+      ]
+    }
+  ]
+}
+```
+
+Two details students get wrong here every time.
+
+**`ecr:GetAuthorizationToken` must be on `"*"`.** It is not a resource-scoped action, so
+putting a repository ARN there produces a policy that looks careful and then fails at
+`docker login` with an access denied that names no resource at all.
+
+**Everything else is pinned to two repositories.** Push and pull on those two, and nothing
+anywhere else in the registry. That is the whole permission set for the pipeline that ships
+your application.
+
+### The workloads need identities too
+
+Section 6 solved authentication for the pipeline. The pods you deploy have the same problem:
+an application that reads and writes S3 needs credentials, and putting an access key in a
+Kubernetes Secret recreates exactly the problem OIDC removed.
+
+On EKS the answer is **Pod Identity**, the modern successor to IRSA. The shape is the same
+idea as OIDC, applied inside the cluster:
+
+1. Create a normal IAM role that trusts the EKS service.
+2. Create an **association** mapping a specific cluster, namespace and ServiceAccount to
+   that role.
+3. An agent on the cluster hands short-lived credentials to pods running under that
+   ServiceAccount, and to nothing else.
+
+The ServiceAccount needs no annotation. That is the visible difference from IRSA, where the
+role ARN had to be annotated onto the ServiceAccount itself. Here the mapping lives on the
+AWS side, in the association.
+
+Every Pod Identity role shares this trust policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "pods.eks.amazonaws.com"
+      },
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ]
+    }
+  ]
+}
+```
+
+`sts:TagSession` is **required, not optional**. EKS tags the session with the cluster,
+namespace and ServiceAccount, which is what makes the association enforceable and what shows
+up in CloudTrail. Leave it out and the role cannot be assumed.
+
+The application's own permission policy is a good example of real least privilege:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::my-bucket/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::my-bucket"
+    }
+  ]
+}
+```
+
+Look carefully at the two resource forms. Object actions apply to the **objects**, written
+as the bucket ARN followed by a slash and a star. ListBucket applies to the **bucket
+itself**, with no trailing slash and no star. Swapping those two is the most common S3
+policy mistake there is, and it fails in a way that looks exactly like the permission is
+missing entirely.
+
+### Verifying it, layer by layer
+
+Creating a role always succeeds. Whether it authenticates only shows up later, so check each
+layer separately rather than guessing.
+
+**The pipeline roles.** The first AWS step in the workflow either assumes the role or it does
+not. A failure reading `Not authorized to perform sts:AssumeRoleWithWebIdentity` is a trust
+policy problem and is almost always the subject claim. An access denied during `docker login`
+is a permission policy problem, and usually the authorization token action.
+
+**The workload roles.** Check the association exists, then check a pod actually received
+credentials:
+
+```bash
+aws eks list-pod-identity-associations --cluster-name my-cluster --region REGION --output table
+kubectl -n my-namespace exec deploy/my-app -- env | grep AWS_
+```
+
+A pod that picked up Pod Identity has `AWS_CONTAINER_CREDENTIALS_FULL_URI` and
+`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` in its environment. If those are missing, the
+association does not match the pod: check that the namespace and ServiceAccount name are
+exactly the ones the pod runs under, and that the `eks-pod-identity-agent` add-on is
+installed and running.
+
+**End to end.** Exercise the feature that needs the permission. In our project, uploading a
+photo tests the application role writing to S3, and the image appearing afterwards tests the
+presigned URL reading it back.
+
+### One teardown gotcha worth knowing
+
+Volumes created by a PersistentVolumeClaim are created by **Kubernetes**, not by Terraform.
+So `terraform destroy` does not know they exist and leaves them behind, still billing.
+
+After tearing down a cluster, look for orphans:
+
+```bash
+aws ec2 describe-volumes --region REGION --filters Name=status,Values=available --output table
+```
+
+This is not a hypothetical. Our own project teardown left a 20 GiB volume from the database
+behind after Terraform reported a clean destroy of everything it managed.
+
+### Hardening checklist for production
+
+The version we build in this course is a teaching build, and the infra role gets broad
+permissions so the lesson stays about pipelines rather than policy authoring. Before any of
+this goes near something real:
+
+- **Split plan from apply.** Two roles, with the plan role read-only, so a pull request from
+  a fork can never change infrastructure.
+- **Replace broad administrator permissions** on the infra role with a policy scoped to the
+  services the project actually manages.
+- **Add a permissions boundary.** Without one, the ability to create IAM roles is effectively
+  the ability to escalate to administrator, because a role that can create roles can create a
+  more powerful one.
+- **Narrow the subject condition** from the whole repository down to a branch or a GitHub
+  environment, so only workflows on `main` can deploy.
+- **Require environment approval** on the apply job, using the approval gates from Section 4,
+  so a human stands between a merge and a production change.
+
+---
+
 ## Lab - Deploy with Secrets and Approval Gate
 
 ### Objective
@@ -687,6 +965,9 @@ jobs:
 - Using `pull_request_target` carelessly with fork pull requests. That trigger runs with access to your secrets in the base repository context, so untrusted fork code could exfiltrate them. Guard it with strict conditions or avoid it.
 - Forgetting `id-token: write` when setting up OIDC, or leaving old static access keys in Secrets after switching to OIDC. The dormant keys remain a liability until removed.
 - Reusing the same secret value across staging and production. A leak in the low-trust staging environment then compromises production too. Use environment-specific secrets.
+- Using one AWS role for both the application build and the infrastructure pipeline. Every routine image build then runs with the power to delete your whole environment. Split them.
+- Scoping `ecr:GetAuthorizationToken` to a repository ARN. It is not a resource-scoped action, so the policy looks careful and then fails at `docker login` with an access denied naming no resource.
+- Writing an S3 policy with the object actions and `s3:ListBucket` on the same resource. Object actions need `bucket/*`, ListBucket needs the bare bucket, and getting it wrong looks exactly like a missing permission.
 
 ## Quick Self-Check
 
@@ -695,6 +976,9 @@ jobs:
 3. What does an approval gate add to a deployment, and where do you configure required reviewers?
 4. In plain terms, how does OIDC let GitHub Actions deploy to AWS without storing an access key?
 5. Which single line must appear under `permissions:` for a job to request an OIDC token, and why should you still keep the other permissions minimal?
+6. Your OIDC trust policy names the right repository and the workflow still fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity`. What is the most likely cause, and where would you look to confirm it?
+7. Why can the bootstrap role not be created by the same Terraform that creates every other role?
+8. A pod needs to read from S3. Why is putting an access key in a Kubernetes Secret the wrong answer, and what replaces it on EKS?
 
 ## Summary
 
@@ -706,6 +990,10 @@ jobs:
 | Approval gates | Pause workflow until human approves |
 | OIDC | No stored credentials - GitHub proves identity to cloud |
 | Least privilege | Only grant permissions your job actually needs |
+| Two pipeline roles | Build role pushes images; infra role builds infrastructure. Never one role for both |
+| Subject claim | Some accounts emit an immutable-id form, so match `repo:OWNER@*/REPO@*:*` |
+| Bootstrap | State bucket, OIDC provider and infra role are created once, by hand |
+| Pod Identity | Workloads get short-lived cloud credentials too, with no key in a Secret |
 | Secret masking | GitHub auto-redacts secrets from logs |
 
 ---

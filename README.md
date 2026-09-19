@@ -33,7 +33,7 @@ This module uses GitHub Actions, GitHub's built-in CI/CD platform. It is free fo
 |---|---|---|
 | [Day 1](day1-foundations/notes.md) | **CI/CD Foundations** | What CI, CD, and pipelines are; workflows, jobs, steps, runners, triggers; your first workflow |
 | [Day 2](day2-continuous-integration/notes.md) | **Continuous Integration** | Running tests, linting, matrix builds, caching, artifacts, branch protection |
-| [Day 3](day3-secrets-environments/notes.md) | **Secrets & Environments** | GitHub Secrets, environments, approval gates, OIDC keyless auth, least privilege |
+| [Day 3](day3-secrets-environments/notes.md) | **Secrets & Environments** | GitHub Secrets, environments, approval gates, OIDC keyless auth, least privilege, and the real AWS IAM roles a pipeline and its workloads need |
 | [Day 4](day4-continuous-deployment/notes.md) | **Continuous Deployment** | Building and pushing Docker images, deploying to cloud platforms, versioning, rollbacks, smoke tests |
 | [Day 5](day5-end-to-end-project/notes.md) | **End-to-End Project** | Tie Git, Terraform, Docker, Kubernetes and CI/CD into one complete pipeline |
 
